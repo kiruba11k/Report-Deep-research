@@ -1,4 +1,3 @@
-import streamlit as st
 import os
 import operator
 import io
@@ -7,9 +6,9 @@ from typing import Annotated, List, TypedDict
 from langchain_anthropic import ChatAnthropic
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.graph import StateGraph, END
-from langgraph.types import Send
+from langgraph.types import Send 
 from docx import Document
-from pypdf import PdfReader  # Required: pip install pypdf
+from pypdf import PdfReader
 
 # --- 1. PAGE CONFIG & THEME ---
 st.set_page_config(
@@ -73,6 +72,7 @@ st.markdown("""
 class OverallState(TypedDict):
     target_company: str
     pdf_context: str
+    # Annotated with operator.add is correct to handle parallel list merging
     research_data: Annotated[list, operator.add]
     source_urls: Annotated[list, operator.add]
     final_report: str
@@ -135,7 +135,7 @@ def get_llm():
     return ChatAnthropic(model="claude-3-5-sonnet-latest", anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 def planner(state: OverallState):
-    # Logic: Dispatch 5 parallel researcher tasks
+    # This logic is correct: creating a list of Send objects
     return [Send("researcher", {
         "section_name": s, 
         "target_company": state['target_company'],
@@ -149,25 +149,23 @@ def researcher(state: SectionState):
     query = f"{state['target_company']} {state['section_name']} report 2024-2026"
     web_results = search_tool.invoke(query)
     
-    # Store URLs locally
     urls = [r['url'] for r in web_results]
     web_context = "\n".join([f"Source [{i+1}]: {r['content']} (URL: {r['url']})" for i, r in enumerate(web_results)])
     
-    system_msg = f"You are a specialist analyst. Follow SOP. Use.\n\n{PROMPT_SOP.get(state['section_name'], '')}"
-    user_msg = f"Target: {state['target_company']}\nPDF Context: {state['pdf_context'][:10000]}\nWeb: {web_context}"
+    # Use format strings for prompts if you have {company} placeholders
+    system_prompt = PROMPT_SOP.get(state['section_name'], "").replace("{company}", state['target_company'])
+    system_msg = f"You are a specialist analyst. Follow SOP. Use.\n\n{system_prompt}"
+    user_msg = f"Target: {state['target_company']}\nPDF Context: {state['pdf_context'][:15000]}\nWeb: {web_context}"
     
     response = llm.invoke([("system", system_msg), ("user", user_msg)])
     
-    # CRITICAL FIX: Return both keys so the reducer can merge them into OverallState
     return {
         "research_data": [{"section": state['section_name'], "content": response.content}],
-        "source_urls": urls # 'urls' is already a list from search_tool
+        "source_urls": urls
     }
-
-def writer(state: OverallState):
-    # Sort by section name to match document order
-    sorted_sections = sorted(state['research_data'], key=lambda x: x['section'])
     
+def writer(state: OverallState):
+    sorted_sections = sorted(state['research_data'], key=lambda x: x['section'])
     report = f"# STRATEGIC ANALYSIS: {state['target_company']}\n\n"
     for item in sorted_sections:
         report += f"## {item['section']}\n{item['content']}\n\n"
@@ -176,7 +174,6 @@ def writer(state: OverallState):
     unique_urls = list(dict.fromkeys(state['source_urls']))
     for i, url in enumerate(unique_urls):
         report += f"[{i+1}] {url}\n"
-        
     return {"final_report": report}
     
 # Graph Construction
@@ -184,12 +181,18 @@ builder = StateGraph(OverallState)
 builder.add_node("planner", planner)
 builder.add_node("researcher", researcher)
 builder.add_node("writer", writer)
+
 builder.set_entry_point("planner")
-builder.add_conditional_edges("planner",lambda x: x,["researcher"])
+
+# FIX 2: Simplified conditional edge. 
+# LangGraph uses the return value of planner (the Send list) to route automatically.
+builder.add_conditional_edges("planner", lambda x: x) 
+
 builder.add_edge("researcher", "writer")
 builder.add_edge("writer", END)
-graph = builder.compile(debug=True)
 
+# compile without debug=True for production Streamlit Cloud
+graph = builder.compile()
 
 
 # --- 5. UI ORCHESTRATION ---
