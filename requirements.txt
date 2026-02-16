@@ -2,7 +2,7 @@
 streamlit
 
 # AI Orchestration & Graph Logic
-langgraph
+langgraph>=0.2.0
 langchain-anthropic
 langchain-community
 
