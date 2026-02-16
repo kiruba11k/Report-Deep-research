@@ -8,6 +8,10 @@ from docx import Document
 from pypdf import PdfReader
 import streamlit as st
 import re
+from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.shared import OxmlElement, qn
+from docx.opc.constants import RELATIONSHIP_TYPE
 # --- 1. PAGE CONFIG & THEME ---
 st.set_page_config(
     page_title="Deep Intelligence Orchestrator", 
@@ -339,6 +343,37 @@ def researcher_node(state: OverallState):
         "all_urls": state["all_urls"] + urls,
         "remaining_sections": state["remaining_sections"][1:] 
     }
+def add_hyperlink(paragraph, url, text):
+    """
+    A low-level function to add a real, clickable hyperlink to a paragraph.
+    """
+    # This gets access to the document.xml.rels file and gets a new relation id
+    part = paragraph.part
+    r_id = part.relate_to(url, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
+
+    # Create the w:hyperlink tag and add needed values
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+
+    # Create a w:r element and a new w:rPr element
+    new_run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+
+    # Add a blue underline style to look like a link
+    u = OxmlElement('w:u')
+    u.set(qn('w:val'), 'single')
+    rPr.append(u)
+    c = OxmlElement('w:color')
+    c.set(qn('w:val'), '0000FF')
+    rPr.append(c)
+
+    new_run.append(rPr)
+    new_run.text = text
+    hyperlink.append(new_run)
+
+    paragraph._p.append(hyperlink)
+    return hyperlink
+
 def save_report_as_docx(final_text, target_name):
     doc = Document()
     lines = final_text.split('\n')
@@ -346,49 +381,43 @@ def save_report_as_docx(final_text, target_name):
     while i < len(lines):
         line = lines[i].strip()
         
-        # 1. Handle Headings
+        # 1. HEADINGS
         if line.startswith('# '):
             doc.add_heading(line.replace('# ', ''), level=0)
         elif line.startswith('## '):
             doc.add_heading(line.replace('## ', ''), level=1)
             
-        # 2. Handle Tables (The "Fix")
+        # 2. TABLES (Alignment Fix)
         elif line.startswith('|'):
-            # Detect table block
-            table_data = []
+            table_rows = []
             while i < len(lines) and lines[i].strip().startswith('|'):
-                # Skip the separator line | --- |
+                # Skip the Markdown separator line (e.g., |---|)
                 if not re.match(r'^[| -]+$', lines[i].strip()):
-                    row_cells = [cell.strip() for cell in lines[i].split('|') if cell.strip()]
-                    table_data.append(row_cells)
+                    # Split by | and remove empty strings from edges
+                    cells = [c.strip() for c in lines[i].split('|') if c.strip()]
+                    if cells: table_rows.append(cells)
                 i += 1
             
-            if table_data:
-                table = doc.add_table(rows=len(table_data), cols=len(table_data[0]))
+            if table_rows:
+                table = doc.add_table(rows=len(table_rows), cols=len(table_rows[0]))
                 table.style = 'Table Grid'
-                for r_idx, row in enumerate(table_data):
-                    for c_idx, cell_text in enumerate(row):
-                        # Clean [ref](url) out of table cells for cleaner look if desired
-                        clean_text = re.sub(r'\[ref\]\(.*?\)', '', cell_text)
-                        table.cell(r_idx, c_idx).text = clean_text
-            continue # Skip the i increment because the while loop handled it
+                for r_idx, row_data in enumerate(table_rows):
+                    for c_idx, cell_text in enumerate(row_data):
+                        table.cell(r_idx, c_idx).text = cell_text
+            continue 
 
-        # 3. Handle Hyperlinked Refs in standard text
+        # 3. TEXT & CLICKABLE LINKS
         elif line:
             p = doc.add_paragraph()
-            # Regex to split text by [ref](url)
-            parts = re.split(r'(\[ref\]\(.*?\))', line)
+            # Match the [Source](url) pattern from your LLM output
+            parts = re.split(r'(\[Source\]\(.*?\))', line)
             for part in parts:
-                ref_match = re.match(r'\[ref\]\((.*?)\)', part)
-                if ref_match:
-                    url = ref_match.group(1)
-                    run = p.add_run(" (Source)")
-                    run.font.underline = True
-                    # Note: True docx hyperlinks require a more complex relationship 
-                    # setup, but adding the URL in parenthesis or as underlined 
-                    # text is the most stable approach for this script.
+                link_match = re.match(r'\[Source\]\((.*?)\)', part)
+                if link_match:
+                    url = link_match.group(1)
+                    add_hyperlink(p, url, " (Source)")
                 else:
-                    # Handle bolding inside the text
+                    # Normal text with bolding
                     sub_parts = re.split(r'(\*\*.*?\*\*)', part)
                     for sub in sub_parts:
                         if sub.startswith('**') and sub.endswith('**'):
@@ -399,8 +428,7 @@ def save_report_as_docx(final_text, target_name):
             
     buf = io.BytesIO()
     doc.save(buf)
-    return buf.getvalue()
-    
+    return buf.getvalue()    
 def router(state: OverallState):
     """Checks if there are more sections to research."""
     return "researcher" if state["remaining_sections"] else "writer"
