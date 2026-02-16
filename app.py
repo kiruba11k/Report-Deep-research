@@ -7,7 +7,7 @@ from typing import Annotated, List, TypedDict
 from langchain_anthropic import ChatAnthropic
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.graph import StateGraph, END
-from langgraph.constants import Send
+from langgraph.types import Send
 from docx import Document
 from pypdf import PdfReader  # Required: pip install pypdf
 
@@ -178,23 +178,18 @@ def writer(state: OverallState):
         report += f"[{i+1}] {url}\n"
         
     return {"final_report": report}
+    
 # Graph Construction
 builder = StateGraph(OverallState)
-
 builder.add_node("planner", planner)
 builder.add_node("researcher", researcher)
 builder.add_node("writer", writer)
-
 builder.set_entry_point("planner")
-
-# FIX: planner already dispatches Send objects
-builder.add_edge("planner", "researcher")
-
+builder.add_conditional_edges("planner",lambda x: x,["researcher"])
 builder.add_edge("researcher", "writer")
-
 builder.add_edge("writer", END)
+graph = builder.compile(debug=True)
 
-graph = builder.compile()
 
 
 # --- 5. UI ORCHESTRATION ---
