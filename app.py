@@ -9,6 +9,7 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.graph import StateGraph, END
 from langgraph.constants import Send
 from docx import Document
+from pypdf import PdfReader  # Required: pip install pypdf
 
 # --- 1. PAGE CONFIG & THEME ---
 st.set_page_config(
@@ -18,10 +19,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. ADVANCED CSS FOR MODERN UI ---
+# --- 2. ADVANCED CSS ---
 st.markdown("""
     <style>
-    /* Professional Dark Theme Palette */
     :root {
         --primary: #3b82f6;
         --bg-dark: #0f172a;
@@ -30,17 +30,11 @@ st.markdown("""
         --text-main: #f1f5f9;
         --text-muted: #94a3b8;
     }
-
-    /* Global Transitions */
     * { transition: all 0.3s ease; }
-
-    /* Main Container Styling */
     .stApp {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         color: var(--text-main);
     }
-
-    /* Modern 3D Glassmorphism Card */
     .report-card {
         background: var(--glass-bg);
         backdrop-filter: blur(12px);
@@ -49,22 +43,11 @@ st.markdown("""
         padding: 24px;
         margin-bottom: 24px;
         box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
-        transform: translateZ(0);
     }
-    
     .report-card:hover {
-        transform: translateY(-5px) scale(1.01);
-        box-shadow: 0 20px 40px -15px rgba(0,0,0,0.6);
+        transform: translateY(-5px);
         border-color: var(--primary);
     }
-
-    /* Typography */
-    h1, h2, h3 {
-        font-family: 'Inter', sans-serif;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-    }
-
     .section-title {
         color: var(--primary);
         font-size: 0.8rem;
@@ -72,42 +55,17 @@ st.markdown("""
         letter-spacing: 0.15em;
         margin-bottom: 8px;
     }
-
-    /* Smooth Fade-in Animation */
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
     }
-
-    .animate-in {
-        animation: fadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-    }
-
-    /* Hide Streamlit Default Elements */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-
-    /* Sidebar Styling */
-    section[data-testid="stSidebar"] {
-        background-color: rgba(15, 23, 42, 0.95) !important;
-        border-right: 1px solid var(--glass-border);
-    }
-
-    /* Professional Button */
-    .stButton>button {
-        background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 600;
-        padding: 0.75rem 1.5rem;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-    }
+    .animate-in { animation: fadeIn 0.8s forwards; }
     
-    .stButton>button:hover {
-        box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.4);
-        transform: translateY(-2px);
+    /* File Uploader Styling */
+    section[data-testid="stFileUploadDropzone"] {
+        background: var(--glass-bg);
+        border: 1px dashed var(--glass-border);
+        border-radius: 10px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -165,9 +123,11 @@ PROMPT_SOP = {
 class SectionState(TypedDict):
     section_name: str
     target_company: str
+    pdf_context: str
 
 class OverallState(TypedDict):
     target_company: str
+    pdf_context: str
     research_data: Annotated[List[dict], operator.add]
     source_urls: Annotated[List[str], operator.add]
     final_report: str
@@ -179,7 +139,11 @@ def get_search():
     return TavilySearchResults(max_results=6, tavily_api_key=st.secrets["TAVILY_API_KEY"])
 
 def planner(state: OverallState):
-    return [Send("researcher", {"section_name": s, "target_company": state['target_company']}) for s in PROMPT_SOP.keys()]
+    return [Send("researcher", {
+        "section_name": s, 
+        "target_company": state['target_company'],
+        "pdf_context": state['pdf_context']
+    }) for s in PROMPT_SOP.keys()]
 
 def researcher(state: SectionState):
     search_tool = get_search()
@@ -188,10 +152,24 @@ def researcher(state: SectionState):
     results = search_tool.invoke(query)
     
     urls = [r['url'] for r in results]
-    context = "\n".join([f"Source [{i+1}]: {r['content']} (URL: {r['url']})" for i, r in enumerate(results)])
+    web_context = "\n".join([f"Source [{i+1}]: {r['content']} (URL: {r['url']})" for i, r in enumerate(results)])
     
-    system_msg = f"You are a specialized intelligence agent. Follow the SOP and use for every claim.\n\n{PROMPT_SOP[state['section_name']].format(company=state['target_company'])}"
-    user_msg = f"Data for {state['target_company']}:\n\n{context}"
+    system_msg = f"""You are a specialized intelligence agent. Follow the SOP strictly. 
+    Use the provided PDF CONTENT as your primary 'Ground Truth' source. 
+    Cross-reference with WEB SEARCH DATA for the latest updates.
+    Citations are MANDATORY in format.
+    
+    {PROMPT_SOP[state['section_name']].format(company=state['target_company'])}"""
+    
+    user_msg = f"""
+    TARGET COMPANY: {state['target_company']}
+
+    --- PDF CONTENT (Primary Source) ---
+    {state['pdf_context'][:15000]} 
+
+    --- WEB SEARCH DATA (Secondary Source) ---
+    {web_context}
+    """
     
     response = llm.invoke([("system", system_msg), ("user", user_msg)])
     return {
@@ -219,20 +197,36 @@ graph = builder.compile()
 
 # --- 5. UI ORCHESTRATION ---
 st.title("Strategic Intelligence Orchestrator")
-st.markdown("<p style='color: var(--text-muted); margin-top:-1rem;'>Autonomous Multi-Agent Enterprise Research</p>", unsafe_allow_html=True)
+st.markdown("<p style='color: var(--text-muted); margin-top:-1rem;'>Autonomous Multi-Agent Enterprise Research with PDF Ground-Truth</p>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<div style='padding-top:20px;'></div>", unsafe_allow_html=True)
-    st.markdown("<h3 style='margin-bottom:0;'>Parameters</h3>", unsafe_allow_html=True)
+    st.markdown("### Research Parameters")
     target_name = st.text_input("Target Account", placeholder="e.g. First Northern Bank")
+    
+    # PDF Upload Logic
+    uploaded_file = st.file_uploader("Upload Annual Report (PDF)", type="pdf")
+    
     st.divider()
-    execute = st.button("RUN DEEP RESEARCH", use_container_width=True)
+    execute = st.button("EXECUTE ANALYSIS", type="primary", use_container_width=True)
 
 if execute and target_name:
+    # PDF Processing Logic
+    extracted_text = "No PDF provided."
+    if uploaded_file:
+        with st.spinner("Processing Annual Report..."):
+            reader = PdfReader(uploaded_file)
+            extracted_text = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+
     output_container = st.container()
-    progress_status = st.status("Initializing Agents...", expanded=True)
+    progress_status = st.status("Orchestrating Agents...", expanded=True)
     
-    initial_state = {"target_company": target_name, "research_data": [], "source_urls": []}
+    initial_state = {
+        "target_company": target_name, 
+        "pdf_context": extracted_text,
+        "research_data": [], 
+        "source_urls": []
+    }
     
     final_report_text = ""
     for event in graph.stream(initial_state):
