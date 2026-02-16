@@ -1,12 +1,9 @@
 import os
-import operator
 import io
-import json
-from typing import Annotated, List, TypedDict
+from typing import TypedDict
 from langchain_anthropic import ChatAnthropic
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.graph import StateGraph, END
-from langgraph.types import Send 
 from docx import Document
 from pypdf import PdfReader
 import streamlit as st
@@ -72,15 +69,12 @@ st.markdown("""
 class OverallState(TypedDict):
     target_company: str
     pdf_context: str
-    # Use lowercase 'list' for better compatibility with operator.add
-    research_data: Annotated[list, operator.add]
-    source_urls: Annotated[list, operator.add]
+    remaining_sections: list
+    completed_research: list # We will append manually
+    all_urls: list
     final_report: str
 
-class SectionState(TypedDict):
-    section_name: str
-    target_company: str
-    pdf_context: str
+
 # --- 3. DOMAIN-SPECIFIC DEEP PROMPTS ---
 PROMPT_SOP = {
     "Section 1: Account Business Overview": """
@@ -134,128 +128,122 @@ PROMPT_SOP = {
 def get_llm():
     return ChatAnthropic(model="claude-3-5-sonnet-latest", anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"])
 
-def planner(state: OverallState):
-    # This logic is correct: creating a list of Send objects
-    return [Send("researcher", {
-        "section_name": s, 
-        "target_company": state['target_company'],
-        "pdf_context": state['pdf_context']
-    }) for s in PROMPT_SOP.keys()]
+def initializer(state: OverallState):
+    """Starts the process by listing what needs to be researched."""
+    return {
+        "remaining_sections": list(PROMPT_SOP.keys()),
+        "completed_research": [],
+        "all_urls": []
+    }
 
-def researcher(state: SectionState):
-    search_tool = TavilySearchResults(max_results=5, tavily_api_key=st.secrets["TAVILY_API_KEY"])
+def researcher_node(state: OverallState):
+    """Researches the next section in the list."""
+    if not state["remaining_sections"]:
+        return state
+
+    current_section = state["remaining_sections"][0]
     llm = get_llm()
+    search_tool = TavilySearchResults(max_results=3, tavily_api_key=st.secrets["TAVILY_API_KEY"])
     
-    query = f"{state['target_company']} {state['section_name']}"
-    
-    # 1. Safe Search
+    # 1. Search
+    query = f"{state['target_company']} {current_section} 2024 2025"
     try:
         web_results = search_tool.invoke(query)
-        urls = [str(r.get('url', '')) for r in web_results]
-        web_context = "\n".join([f"Source: {r.get('content', '')}" for r in web_results])
-    except Exception:
-        urls = []
-        web_context = "Search unavailable."
+        urls = [r.get('url', '') for r in web_results]
+        web_context = "\n".join([r.get('content', '') for r in web_results])
+    except:
+        urls, web_context = [], "Web search failed."
 
-    # 2. LLM Call
-    system_msg = f"You are a financial analyst. Use. \n\n{PROMPT_SOP.get(state['section_name'], '')}"
-    user_msg = f"Company: {state['target_company']}\nContext: {state['pdf_context'][:10000]}\nWeb: {web_context}"
+    # 2. LLM Analysis
+    sys_prompt = PROMPT_SOP[current_section].replace("{company}", state['target_company'])
+    user_msg = f"PDF Context: {state['pdf_context'][:8000]}\nWeb Context: {web_context}"
     
-    response = llm.invoke([("system", system_msg), ("user", user_msg)])
+    response = llm.invoke([("system", sys_prompt), ("user", user_msg)])
     
-    # 3. FORCE RETURN AS LIST OF DICTS (The state expects a list to 'add' to)
+    # 3. Update state manually (Standard Python List Addition)
     return {
-        "research_data": [{"section": state['section_name'], "content": str(response.content)}],
-        "source_urls": list(urls) # Ensure this is a flat list
+        "completed_research": state["completed_research"] + [{"section": current_section, "content": response.content}],
+        "all_urls": state["all_urls"] + urls,
+        "remaining_sections": state["remaining_sections"][1:] # Pop the section we just did
     }
-    
-def writer(state: OverallState):
-    sorted_sections = sorted(state['research_data'], key=lambda x: x['section'])
+
+def router(state: OverallState):
+    """Checks if there are more sections to research."""
+    return "researcher" if state["remaining_sections"] else "writer"
+
+def writer_node(state: OverallState):
+    """Finalizes the report."""
     report = f"# STRATEGIC ANALYSIS: {state['target_company']}\n\n"
-    for item in sorted_sections:
+    for item in state["completed_research"]:
         report += f"## {item['section']}\n{item['content']}\n\n"
     
     report += "\n# References\n"
-    unique_urls = list(dict.fromkeys(state['source_urls']))
-    for i, url in enumerate(unique_urls):
-        report += f"[{i+1}] {url}\n"
-    return {"final_report": report}
-    
+    for url in list(set(state["all_urls"])):
+        report += f"- {url}\n"
+    return {"final_report": report}    
 # Graph Construction
-builder = StateGraph(OverallState)
-builder.add_node("planner", planner)
-builder.add_node("researcher", researcher)
-builder.add_node("writer", writer)
+workflow = StateGraph(OverallState)
 
-builder.set_entry_point("planner")
+workflow.add_node("initializer", initializer)
+workflow.add_node("researcher", researcher_node)
+workflow.add_node("writer", writer_node)
 
-# This tells LangGraph to take the list of Send() objects and run them
-builder.add_conditional_edges("planner", lambda x: x) 
+workflow.set_entry_point("initializer")
+workflow.add_edge("initializer", "researcher")
 
-# This fans-in the results. LangGraph waits for ALL researchers before moving to writer.
-builder.add_edge("researcher", "writer")
-builder.add_edge("writer", END)
+# This loop ensures we research one by one without triggering parallel merge errors
+workflow.add_conditional_edges(
+    "researcher",
+    router,
+    {"researcher": "researcher", "writer": "writer"}
+)
 
-graph = builder.compile()
+workflow.add_edge("writer", END)
+app = workflow.compile()
 
 # --- 5. UI ORCHESTRATION ---
 st.title("Strategic Intelligence Orchestrator")
 st.markdown("<p style='color: var(--text-muted); margin-top:-1rem;'>Autonomous Multi-Agent Enterprise Research with PDF Ground-Truth</p>", unsafe_allow_html=True)
 
-with st.sidebar:
-    st.markdown("<div style='padding-top:20px;'></div>", unsafe_allow_html=True)
-    st.markdown("### Research Parameters")
-    target_name = st.text_input("Target Account", placeholder="e.g. First Northern Bank")
-    
-    # PDF Upload Logic
-    uploaded_file = st.file_uploader("Upload Annual Report (PDF)", type="pdf")
-    
-    st.divider()
-    execute = st.button("EXECUTE ANALYSIS", type="primary", use_container_width=True)
+target_name = st.sidebar.text_input("Target Account")
+uploaded_file = st.sidebar.file_uploader("Upload PDF", type="pdf")
+execute = st.sidebar.button("EXECUTE ANALYSIS")
 
 if execute and target_name:
-    # PDF Processing Logic
-    extracted_text = "No PDF provided."
+    text = ""
     if uploaded_file:
-        with st.spinner("Processing Annual Report..."):
-            reader = PdfReader(uploaded_file)
-            extracted_text = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+        reader = PdfReader(uploaded_file)
+        text = "\n".join([p.extract_text() for p in reader.pages if p.extract_text()])
 
-    output_container = st.container()
-    progress_status = st.status("Orchestrating Agents...", expanded=True)
-    
     initial_state = {
-        "target_company": target_name, 
-        "pdf_context": extracted_text,
-        "research_data": [],  # Initialize as empty list
-        "source_urls": [],    # Initialize as empty list
-        "final_report": ""    # Initialize as empty string
+        "target_company": target_name,
+        "pdf_context": text,
+        "remaining_sections": [],
+        "completed_research": [],
+        "all_urls": [],
+        "final_report": ""
     }
-    
-    for event in graph.stream(initial_state, {"recursion_limit": 50}):
-        # Use .get() to prevent crashes during the streaming of partial updates
-        for node_name, output in event.items():
-            if node_name == "researcher":
-                # Safety check: only act if research_data is in the output
-                res_list = output.get("research_data", [])
-                if res_list:
-                    data = res_list[0]
-                    progress_status.write(f"Completed: {data['section']}")
-    progress_status.update(label="Analysis Finalized", state="complete", expanded=False)
 
-    # DOCX Export
-    doc = Document()
-    for line in final_report_text.split('\n'):
-        if line.startswith('# '): doc.add_heading(line[2:], level=0)
-        elif line.startswith('## '): doc.add_heading(line[3:], level=1)
-        elif line.strip(): doc.add_paragraph(line)
-            
-    buf = io.BytesIO()
-    doc.save(buf); buf.seek(0)
+    container = st.container()
+    status = st.status("Orchestrating Research...")
     
-    st.sidebar.download_button(
-        "DOWNLOAD DOCX REPORT", 
-        data=buf, 
-        file_name=f"{target_name}_Plan.docx",
-        use_container_width=True
-    )
+    final_text = ""
+    for event in app.stream(initial_state):
+        for node, output in event.items():
+            if node == "researcher" and "completed_research" in output:
+                latest = output["completed_research"][-1]
+                status.write(f"✅ Completed: {latest['section']}")
+                container.markdown(f"### {latest['section']}")
+                container.write(latest['content'])
+            if node == "writer":
+                final_text = output["final_report"]
+
+    status.update(label="Analysis Finished", state="complete")
+    
+    # Export
+    doc = Document()
+    for line in final_text.split('\n'):
+        doc.add_paragraph(line)
+    buf = io.BytesIO()
+    doc.save(buf)
+    st.download_button("Download DOCX", buf.getvalue(), f"{target_name}_Report.docx")
