@@ -7,6 +7,7 @@ from langgraph.graph import StateGraph, END
 from docx import Document
 from pypdf import PdfReader
 import streamlit as st
+import re
 # --- 1. PAGE CONFIG & THEME ---
 st.set_page_config(
     page_title="Deep Intelligence Orchestrator", 
@@ -308,12 +309,13 @@ def researcher_node(state: OverallState):
     # 2. Strict Styling Instructions
     styling_instruction = """
     STRICT FORMATTING RULES:
-    1. Use the EXACT headers and sub-headers (1.1, 1.2, etc.) provided in the SOP.
-    2. Use the solid circle bullet point '●' for main points.
-    3. Use the open circle bullet point '○' for sub-points.
-    4. Bold the category names at the start of bullets (e.g., ● **Who they are:**).
-    5. CRITICAL: Every single factual sentence or metric MUST end with the word 'ref'.
-    6. Do not include any introductory or concluding conversational filler.
+    1. Use '●' for main points and '○' for sub-points.
+    2. Bold category names (e.g., ● **Who they are:**).
+    3. HYPERLINKING: Instead of just writing 'ref', write [ref](URL) where URL is the 
+       most relevant link from the search data provided.
+    4. TABLES: Use standard Markdown table syntax. Ensure columns are separated by | 
+       and headers are followed by a separator line | --- | --- |.
+    5. Do not add conversational filler.
     """
 
     sys_prompt = f"{PROMPT_SOP[current_section].replace('{company}', state['target_company'])}\n\n{styling_instruction}"
@@ -338,27 +340,62 @@ def researcher_node(state: OverallState):
         "remaining_sections": state["remaining_sections"][1:] 
     }
 def save_report_as_docx(final_text, target_name):
-    """Parses markdown-style bolding and bullets into a real Word Doc."""
     doc = Document()
-    
-    for line in final_text.split('\n'):
+    lines = final_text.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # 1. Handle Headings
         if line.startswith('# '):
             doc.add_heading(line.replace('# ', ''), level=0)
         elif line.startswith('## '):
             doc.add_heading(line.replace('## ', ''), level=1)
-        elif line.strip().startswith('●') or line.strip().startswith('○'):
-            # This keeps your specific bullet characters
-            p = doc.add_paragraph(line.strip())
-        elif '**' in line:
+            
+        # 2. Handle Tables (The "Fix")
+        elif line.startswith('|'):
+            # Detect table block
+            table_data = []
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                # Skip the separator line | --- |
+                if not re.match(r'^[| -]+$', lines[i].strip()):
+                    row_cells = [cell.strip() for cell in lines[i].split('|') if cell.strip()]
+                    table_data.append(row_cells)
+                i += 1
+            
+            if table_data:
+                table = doc.add_table(rows=len(table_data), cols=len(table_data[0]))
+                table.style = 'Table Grid'
+                for r_idx, row in enumerate(table_data):
+                    for c_idx, cell_text in enumerate(row):
+                        # Clean [ref](url) out of table cells for cleaner look if desired
+                        clean_text = re.sub(r'\[ref\]\(.*?\)', '', cell_text)
+                        table.cell(r_idx, c_idx).text = clean_text
+            continue # Skip the i increment because the while loop handled it
+
+        # 3. Handle Hyperlinked Refs in standard text
+        elif line:
             p = doc.add_paragraph()
-            parts = line.split('**')
-            for i, part in enumerate(parts):
-                if i % 2 == 1:
-                    p.add_run(part).bold = True
+            # Regex to split text by [ref](url)
+            parts = re.split(r'(\[ref\]\(.*?\))', line)
+            for part in parts:
+                ref_match = re.match(r'\[ref\]\((.*?)\)', part)
+                if ref_match:
+                    url = ref_match.group(1)
+                    run = p.add_run(" (Source)")
+                    run.font.underline = True
+                    # Note: True docx hyperlinks require a more complex relationship 
+                    # setup, but adding the URL in parenthesis or as underlined 
+                    # text is the most stable approach for this script.
                 else:
-                    p.add_run(part)
-        else:
-            doc.add_paragraph(line)
+                    # Handle bolding inside the text
+                    sub_parts = re.split(r'(\*\*.*?\*\*)', part)
+                    for sub in sub_parts:
+                        if sub.startswith('**') and sub.endswith('**'):
+                            p.add_run(sub.replace('**', '')).bold = True
+                        else:
+                            p.add_run(sub)
+        i += 1
             
     buf = io.BytesIO()
     doc.save(buf)
@@ -431,7 +468,7 @@ if execute and target_name:
         for node, output in event.items():
             if node == "researcher" and "completed_research" in output:
                 latest = output["completed_research"][-1]
-                status.write(f"✅ Completed: {latest['section']}")
+                status.write(f" Completed: {latest['section']}")
                 container.markdown(f"### {latest['section']}")
                 container.write(latest['content'])
             if node == "writer":
