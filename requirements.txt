@@ -1,17 +1,8 @@
-# Web Framework
-streamlit
-
-# AI Orchestration & Graph Logic
-langgraph>=0.2.0
-langchain-anthropic
-langchain-community
-
-# Search Engine Integration
-tavily-python
-
-# Document Processing & Export
-python-docx
-
-# Utilities
-typing-extensions
-pypdf
+streamlit==1.54.0
+langgraph>=1.0.8
+langchain-core>=0.3.0
+langchain-anthropic>=0.3.0
+langchain-community>=0.3.0
+tavily-python>=0.5.0
+pypdf>=5.0.0
+python-docx>=1.1.0
