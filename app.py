@@ -78,49 +78,196 @@ class OverallState(TypedDict):
 # --- 3. DOMAIN-SPECIFIC DEEP PROMPTS ---
 PROMPT_SOP = {
     "Section 1: Account Business Overview": """
-        Persona: Lead Financial Analyst.
-        Focus: Fundamental identity and regulatory posture of {company}.
-        Requirements:
-        1. Exact legal entity name and FDIC Certificate details.
-        2. Scalability metrics: FY2024 Assets, Deposits, and Loans.
-        3. Regulatory signals: Primary regulator and charter classification.
-        Citations: Every metric must be cited as.
+        Act as a professional banking analyst. Use the following EXACT structure and styling:
+        
+        Section 1: Account Business Overview
+        1.1 Who they are
+        ● **Who they are:** [Detailed description including holding company and ticker] ref
+        ● **Founded:** [Founding date and FDIC record] ref
+        ● **Footprint (publicly stated):** [Marketing/Branch count details] ref
+        ● **FDIC locations count:** [Regulatory count from BankFind] ref
+        
+        1.2 Headquarters and regulator signals
+        ● **HQ / base (FDIC record):** [Address] ref
+        ● **HQ / base (investor profile):** [Address] ref
+        ● **Primary federal regulator:** [Regulator Name] ref
+        ● **Charter signal:** [State/Federal classification] ref
+        ● **FDIC certificate:** Cert #[Number] ref
+        
+        1.3 Deposit insurance
+        ● **Deposit insurance:** [FDIC insurance details] ref
+        
+        1.4 FY2024 scale (as of 12/31/2024)
+        ● **Total assets:** $[Value]B ref
+        ● **Total deposits:** $[Value]B ref
+        ● **Total loans (including loans held-for-sale):** $[Value]B ref
+        ● **Stockholders’ equity:** $[Value]M ref
+        
+        1.5 FY2024 performance and capital posture
+        ● **Net income (FY2024):** $[Value]M ref
+        ● **Profitability ratios (FY2024):** ROAA [Value]% and ROAE [Value]% ref
+        ● **Book value per share:** $[Value] ref
+        ● **Capital signal:** [Capitalization status/ratios] ref
+        
+        1.6 YoY movement (2024 vs 2023)
+        ● **Assets:** [+/-]% ref
+        ● **Deposits:** [+/-]% ref
+        ● **Net loans:** [+/-]% ref
+        ● **Net income:** [+/-]% ref
+        
+        1.7 Business lines the bank emphasizes publicly
+        ● **Business lending focus:** [Details] ref
+        ● **SBA capability:** [SBA status and programs] ref
+        ● **Wealth / investments:** [Partners and services] ref
+        
+        1.8 Governance and audit discipline
+        ● **Audit oversight:** [Audit firm and committee details] ref
+        
+        **Why this matters for Speridian**
+        [Paragraph synthesizing the data into a sales strategy for Speridian] ref
     """,
-    "Section 2: Key Business Initiatives": """
-        Persona: Strategic Strategy Principal.
-        Focus: Operational optimization and strategic catalysts.
-        Requirements:
-        1. Profitability levers: Net interest margin and efficiency goals.
-        2. Growth vectors: M&A activity and footprint expansion.
-        3. Modernization: Information Services and digital delivery mandates.
-        Citations: Connect goals to sources with.
+
+    "Section 2: Account Key Business Initiatives": """
+        Act as a strategic advisor. Use the following EXACT structure and styling:
+
+        Section 2: Account Key Business Initiatives
+        2.1 Executive synthesis: what [Company Name] is optimizing for
+        [Provide a short paragraph intro]
+        1. **[Priority 1 Title]**: [Brief description] ref
+        2. **[Priority 2 Title]**: [Brief description] ref
+        3. **[Priority 3 Title]**: [Brief description] ref
+        4. **[Priority 4 Title]**: [Brief description] ref
+        5. **[Priority 5 Title]**: [Brief description] ref
+
+        2.2 Initiative portfolio: notable programs and why they matter
+        **Initiative 1: [Title]**
+        **What [Company Name] is doing**
+        ● [Details] ref
+        **Why it matters**
+        ● [Operational analysis/friction points]
+        **KPI watchlist**
+        ● [List 3 specific metrics] ref
+
+        [Repeat for Initiative 2, 3, and 4 using the same pattern]
+
+        2.3 Other initiatives worth tracking
+        ● **[Initiative Name]**: [Details] ref
     """,
+
     "Section 3: Account Tech Landscape": """
-        Persona: Chief Technology Architect.
-        Focus: Infrastructure, partners, and technical ecosystems.
-        Requirements:
-        1. Core Digital: Online Banking and Mobile Deposit platforms.
-        2. Treasury Engine: Positive Pay, ACH controls, and RDC.
-        3. Partner Edge: Integrations with Elan, Autobooks, and Celero.
-        Citations: Link technical specs to sources with.
+        Act as a Fintech Architect. Use the following EXACT structure and styling:
+
+        Section 3: Account Tech Landscape
+        Executive snapshot
+        [Intro paragraph]
+        1. **Digital access layer for consumers**: [Summary] ref
+        2. **Treasury and cash-management capabilities for businesses**: [Summary] ref
+        3. **Partner ecosystem for cards and value-added services**: [Summary] ref
+
+        3.1 Digital banking channels and self-service capabilities
+        **Online Banking and Bill Pay**
+        ● [Details] ref
+        **Mobile Banking with Mobile Deposit**
+        ● [Details] ref
+        **Mobile Wallet**
+        ● [Details] ref
+        **Debit card controls (CardValet)**
+        ● [Details] ref
+        **Practical implications**
+        ● [Impact analysis] ref
+
+        3.2 Treasury, cash management, and business workflow tooling
+        **Business online banking and approvals**
+        ● [Details] ref
+        **Remote Deposit Capture**
+        ● [Details] ref
+        **Positive Pay and ACH Positive Pay**
+        ● [Details] ref
+        **Invoicing and digital payment acceptance**
+        ● [Details] ref
+        **Practical implications**
+        ● [Impact analysis] ref
+
+        3.3 Card, payments, and partner ecosystems
+        **Credit cards**
+        ● [Issuer name] ref
+        **ATM network**
+        ● [Network name] ref
+        **Practical implications**
+        ● [Impact analysis] ref
+
+        3.4 What this means for partner-led delivery
+        ● [Strategy 1] ref
+        ● [Strategy 2] ref
+
+        3.5 IT Operating Model
+        ● [Staff estimate and leadership details]
+        ○ [Sub-bullet on committees] ref
+        ○ [Sub-bullet on locations] ref
+        **Interpretation**
+        [Analysis paragraph] ref
     """,
-    "Section 4: Relationship & Stakeholders": """
-        Persona: Executive Intelligence Lead.
-        Focus: Hierarchy and governance structure.
-        Requirements:
-        1. C-Suite alignment: CEO, CIO, and CCBO focus areas.
-        2. Board Governance: Key committees (Audit, Compliance).
-        3. Influence map: Key decision-makers for partner-led work.
-        Citations: Reference leadership bios with.
+
+    "Section 4: Speridian Account Relationship": """
+        Act as a Sales Director. Use the following EXACT structure and styling:
+
+        Section 4: Speridian Account Relationship and Competitive Context
+        4.1 Current Speridian relationship
+        [Intro paragraph] ref
+        **Current relationship footprint**
+        ● **Active working lane (strongest):** [Lending/Agribusiness]
+        ○ [Stakeholder Name], [Title]: [Status]
+        **Connection status**
+        ● **Met / warm:** [Names]
+        ● **Next to build (priority):** [Role titles]
+        **What this signals**
+        ● [Strategic analysis] ref
+
+        4.2 Stakeholder map
+        [Description of map priority]
+        **Primary sponsor for [Department]**
+        ● **[Name]**, [Title]
+        ○ [Bio/ownership details] ref
+
+        [Include Table with specific columns: Prospect Name, Designation, LinkedIn URL, Connected/Not, Email, Contact Info]
+
+        4.3 Competitive context: who is already “in the account”
+        [Include Table with specific columns: Domain, What they are doing, Who is visibly in the account, Why it matters for Speridian]
+
+        4.4 Where Speridian can realistically fit
+        **Play 1: [Title]**
+        **What to offer**
+        ● [Bullet 1]
+        ● [Bullet 2]
+        **Why this fits [Company Name]**
+        ● [Analysis] ref
     """,
-    "Section 5: Strategic Next Steps": """
-        Persona: Solutions Director.
-        Focus: Actionable roadmap for partner alignment.
-        Requirements:
-        1. Friction points: Identification of manual workflow bottlenecks.
-        2. Playbooks: Repeatable integration and automation opportunities.
-        3. Engagement: 30-day tactical hooks for senior stakeholders.
-        Citations: Support recommendations with findings using.
+
+    "Section 5: Speridian Next Steps to Move Account Forward": """
+        Act as a Managing Director. Use the following EXACT structure and styling:
+
+        Section 5: Speridian Next Steps to Move Account Forward
+        5.1 Strong signals [Company Name] will fund services work
+
+        1. **[Signal 1 Title]**
+        ● [Details on current performance/priorities] ref
+        ● [Connection to services need] ref
+
+        2. **[Signal 2 Title]**
+        ● [Leadership change/mandate details] ref
+        ● [Connection to modernization need] ref
+
+        3. **[Signal 3 Title]**
+        ● [Specific workflow pain points like Positive Pay/ACH] ref
+        ● [Connection to operational efficiency need] ref
+
+        4. **[Signal 4 Title]**
+        ● [Acquisition/M&A signal] ref
+        ● [Connection to integration playbook need] ref
+
+        5. **[Signal 5 Title]**
+        ● [Board/Capital governance signal] ref
+        ● [Connection to ROI/Audit-ready delivery] ref
     """
 }
 
@@ -140,9 +287,8 @@ def initializer(state: OverallState):
         "completed_research": [],
         "all_urls": []
     }
-
 def researcher_node(state: OverallState):
-    """Researches the next section in the list."""
+    """Researches the next section in the list with strict styling enforcement."""
     if not state["remaining_sections"]:
         return state
 
@@ -159,18 +305,31 @@ def researcher_node(state: OverallState):
     except:
         urls, web_context = [], "Web search failed."
 
-    # 2. LLM Analysis
-    # Formatting prompt with company name safely
-    sys_prompt = PROMPT_SOP[current_section].replace("{company}", state['target_company'])
+    # 2. Strict Styling Instructions
+    styling_instruction = """
+    STRICT FORMATTING RULES:
+    1. Use the EXACT headers and sub-headers (1.1, 1.2, etc.) provided in the SOP.
+    2. Use the solid circle bullet point '●' for main points.
+    3. Use the open circle bullet point '○' for sub-points.
+    4. Bold the category names at the start of bullets (e.g., ● **Who they are:**).
+    5. CRITICAL: Every single factual sentence or metric MUST end with the word 'ref'.
+    6. Do not include any introductory or concluding conversational filler.
+    """
+
+    sys_prompt = f"{PROMPT_SOP[current_section].replace('{company}', state['target_company'])}\n\n{styling_instruction}"
     
-    # REDUCE context size to 5000 to ensure we don't hit model limits or 404s on large headers
-    user_msg = f"Target Company: {state['target_company']}\n\nPDF DOCUMENT EXCERPT:\n{state['pdf_context'][:5000]}\n\nWEB SEARCH DATA:\n{web_context}"
+    # 3. User Message
+    user_msg = (
+        f"Target Company: {state['target_company']}\n\n"
+        f"PDF DOCUMENT EXCERPT:\n{state['pdf_context'][:5000]}\n\n"
+        f"WEB SEARCH DATA:\n{web_context}\n\n"
+        f"Generate the report section now following the styling rules exactly."
+    )
     
     try:
         response = llm.invoke([("system", sys_prompt), ("user", user_msg)])
         content = response.content
     except Exception as e:
-        # If the specific model fails, we use a fallback to ensure the app doesn't crash
         content = f"Error analyzing {current_section}: {str(e)}"
     
     return {
@@ -178,20 +337,49 @@ def researcher_node(state: OverallState):
         "all_urls": state["all_urls"] + urls,
         "remaining_sections": state["remaining_sections"][1:] 
     }
+def save_report_as_docx(final_text, target_name):
+    """Parses markdown-style bolding and bullets into a real Word Doc."""
+    doc = Document()
+    
+    for line in final_text.split('\n'):
+        if line.startswith('# '):
+            doc.add_heading(line.replace('# ', ''), level=0)
+        elif line.startswith('## '):
+            doc.add_heading(line.replace('## ', ''), level=1)
+        elif line.strip().startswith('●') or line.strip().startswith('○'):
+            # This keeps your specific bullet characters
+            p = doc.add_paragraph(line.strip())
+        elif '**' in line:
+            p = doc.add_paragraph()
+            parts = line.split('**')
+            for i, part in enumerate(parts):
+                if i % 2 == 1:
+                    p.add_run(part).bold = True
+                else:
+                    p.add_run(part)
+        else:
+            doc.add_paragraph(line)
+            
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+    
 def router(state: OverallState):
     """Checks if there are more sections to research."""
     return "researcher" if state["remaining_sections"] else "writer"
 
 def writer_node(state: OverallState):
-    """Finalizes the report."""
+    """Finalizes the report with professional styling for the export."""
     report = f"# STRATEGIC ANALYSIS: {state['target_company']}\n\n"
     for item in state["completed_research"]:
+        # Standardize Section titles
         report += f"## {item['section']}\n{item['content']}\n\n"
     
     report += "\n# References\n"
     for url in list(set(state["all_urls"])):
         report += f"- {url}\n"
-    return {"final_report": report}    
+    
+    return {"final_report": report}
 # Graph Construction
 workflow = StateGraph(OverallState)
 
@@ -252,9 +440,10 @@ if execute and target_name:
     status.update(label="Analysis Finished", state="complete")
     
     # Export
-    doc = Document()
-    for line in final_text.split('\n'):
-        doc.add_paragraph(line)
-    buf = io.BytesIO()
-    doc.save(buf)
-    st.download_button("Download DOCX", buf.getvalue(), f"{target_name}_Report.docx")
+    docx_bytes = save_report_as_docx(final_text, target_name)
+    st.download_button(
+        label="Download Professional Report (DOCX)", 
+        data=docx_bytes, 
+        file_name=f"Strategic_Analysis_{target_name}.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
