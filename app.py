@@ -14,7 +14,7 @@ from pypdf import PdfReader  # Required: pip install pypdf
 # --- 1. PAGE CONFIG & THEME ---
 st.set_page_config(
     page_title="Deep Intelligence Orchestrator", 
-    page_icon="📊", 
+    page_icon="", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -70,6 +70,18 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+class OverallState(TypedDict):
+    target_company: str
+    pdf_context: str
+    # Both of these receive multiple updates at once, so both need operator.add
+    research_data: Annotated[List[dict], operator.add]
+    source_urls: Annotated[List[str], operator.add]
+    final_report: str
+
+class SectionState(TypedDict):
+    section_name: str
+    target_company: str
+    pdf_context: str
 # --- 3. DOMAIN-SPECIFIC DEEP PROMPTS ---
 PROMPT_SOP = {
     "Section 1: Account Business Overview": """
@@ -120,25 +132,11 @@ PROMPT_SOP = {
 }
 
 # --- 4. MULTI-AGENT ANALYTICS ENGINE ---
-class SectionState(TypedDict):
-    section_name: str
-    target_company: str
-    pdf_context: str
-
-class OverallState(TypedDict):
-    target_company: str
-    pdf_context: str
-    research_data: Annotated[List[dict], operator.add]
-    source_urls: Annotated[List[str], operator.add]
-    final_report: str
-
 def get_llm():
     return ChatAnthropic(model="claude-3-5-sonnet-latest", anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"])
 
-def get_search():
-    return TavilySearchResults(max_results=6, tavily_api_key=st.secrets["TAVILY_API_KEY"])
-
 def planner(state: OverallState):
+    # Logic: Dispatch 5 parallel researcher tasks
     return [Send("researcher", {
         "section_name": s, 
         "target_company": state['target_company'],
@@ -146,53 +144,51 @@ def planner(state: OverallState):
     }) for s in PROMPT_SOP.keys()]
 
 def researcher(state: SectionState):
-    search_tool = get_search()
+    search_tool = TavilySearchResults(max_results=5, tavily_api_key=st.secrets["TAVILY_API_KEY"])
     llm = get_llm()
+    
     query = f"{state['target_company']} {state['section_name']} report 2024-2026"
-    results = search_tool.invoke(query)
+    web_results = search_tool.invoke(query)
     
-    urls = [r['url'] for r in results]
-    web_context = "\n".join([f"Source [{i+1}]: {r['content']} (URL: {r['url']})" for i, r in enumerate(results)])
+    # Store URLs locally
+    urls = [r['url'] for r in web_results]
+    web_context = "\n".join([f"Source [{i+1}]: {r['content']} (URL: {r['url']})" for i, r in enumerate(web_results)])
     
-    system_msg = f"""You are a specialized intelligence agent. Follow the SOP strictly. 
-    Use the provided PDF CONTENT as your primary 'Ground Truth' source. 
-    Cross-reference with WEB SEARCH DATA for the latest updates.
-    Citations are MANDATORY in format.
-    
-    {PROMPT_SOP[state['section_name']].format(company=state['target_company'])}"""
-    
-    user_msg = f"""
-    TARGET COMPANY: {state['target_company']}
-
-    --- PDF CONTENT (Primary Source) ---
-    {state['pdf_context'][:15000]} 
-
-    --- WEB SEARCH DATA (Secondary Source) ---
-    {web_context}
-    """
+    system_msg = f"You are a specialist analyst. Follow SOP. Use.\n\n{PROMPT_SOP.get(state['section_name'], '')}"
+    user_msg = f"Target: {state['target_company']}\nPDF Context: {state['pdf_context'][:10000]}\nWeb: {web_context}"
     
     response = llm.invoke([("system", system_msg), ("user", user_msg)])
+    
+    # CRITICAL FIX: Return both keys so the reducer can merge them into OverallState
     return {
         "research_data": [{"section": state['section_name'], "content": response.content}],
         "source_urls": urls
     }
 
 def writer(state: OverallState):
-    sorted_data = sorted(state['research_data'], key=lambda x: x['section'])
+    # Sort by section name to match document order
+    sorted_sections = sorted(state['research_data'], key=lambda x: x['section'])
+    
     report = f"# STRATEGIC ANALYSIS: {state['target_company']}\n\n"
-    for item in sorted_data:
+    for item in sorted_sections:
         report += f"## {item['section']}\n{item['content']}\n\n"
     
     report += "\n# References\n"
-    for i, url in enumerate(list(dict.fromkeys(state['source_urls']))):
+    unique_urls = list(dict.fromkeys(state['source_urls']))
+    for i, url in enumerate(unique_urls):
         report += f"[{i+1}] {url}\n"
+        
     return {"final_report": report}
-
 # Graph Construction
 builder = StateGraph(OverallState)
-builder.add_node("planner", planner); builder.add_node("researcher", researcher); builder.add_node("writer", writer)
-builder.set_entry_point("planner"); builder.add_conditional_edges("planner", lambda x: x)
-builder.add_edge("researcher", "writer"); builder.add_edge("writer", END)
+builder.add_node("planner", planner)
+builder.add_node("researcher", researcher)
+builder.add_node("writer", writer)
+
+builder.set_entry_point("planner")
+builder.add_conditional_edges("planner", lambda x: x)
+builder.add_edge("researcher", "writer")
+builder.add_edge("writer", END)
 graph = builder.compile()
 
 # --- 5. UI ORCHESTRATION ---
