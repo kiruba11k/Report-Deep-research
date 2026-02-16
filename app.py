@@ -128,7 +128,7 @@ PROMPT_SOP = {
 def get_llm():
     # 'claude-3-5-sonnet-20241022' is the most stable identifier for Sonnet 3.5
     return ChatAnthropic(
-        model="claude-3-5-sonnet-20241022", 
+        model="claude-3-haiku-20240307", 
         anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"],
         temperature=0
     )
