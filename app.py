@@ -72,9 +72,8 @@ st.markdown("""
 class OverallState(TypedDict):
     target_company: str
     pdf_context: str
-    # Annotated with operator.add is correct to handle parallel list merging
-    research_data: Annotated[list, operator.add]
-    source_urls: Annotated[list, operator.add]
+    research_data: Annotated[list, operator.add] # Use 'list'
+    source_urls: Annotated[list, operator.add]   # Use 'list'
     final_report: str
 
 class SectionState(TypedDict):
@@ -147,21 +146,23 @@ def researcher(state: SectionState):
     llm = get_llm()
     
     query = f"{state['target_company']} {state['section_name']} report 2024-2026"
-    web_results = search_tool.invoke(query)
-    
-    urls = [r['url'] for r in web_results]
-    web_context = "\n".join([f"Source [{i+1}]: {r['content']} (URL: {r['url']})" for i, r in enumerate(web_results)])
-    
-    # Use format strings for prompts if you have {company} placeholders
-    system_prompt = PROMPT_SOP.get(state['section_name'], "").replace("{company}", state['target_company'])
-    system_msg = f"You are a specialist analyst. Follow SOP. Use.\n\n{system_prompt}"
-    user_msg = f"Target: {state['target_company']}\nPDF Context: {state['pdf_context'][:15000]}\nWeb: {web_context}"
+    try:
+        web_results = search_tool.invoke(query)
+        urls = [r['url'] for r in web_results] if web_results else []
+        web_context = "\n".join([f"Source [{i+1}]: {r['content']} (URL: {r['url']})" for i, r in enumerate(web_results)])
+    except:
+        urls = []
+        web_context = "Web search failed."
+
+    system_msg = f"You are a specialist analyst. Use.\n\n{PROMPT_SOP.get(state['section_name'], '')}"
+    user_msg = f"Target: {state['target_company']}\nPDF Context: {state['pdf_context'][:10000]}\nWeb: {web_context}"
     
     response = llm.invoke([("system", system_msg), ("user", user_msg)])
     
+    # FORCE return as dictionary of lists
     return {
-        "research_data": [{"section": state['section_name'], "content": response.content}],
-        "source_urls": urls
+        "research_data": [{"section": state['section_name'], "content": str(response.content)}],
+        "source_urls": list(urls) 
     }
     
 def writer(state: OverallState):
@@ -226,25 +227,25 @@ if execute and target_name:
         "pdf_context": extracted_text,
         "research_data": [], 
         "source_urls": [],
-        "final_report": ""
+        "final_report": "" # Initialize ALL keys
     }
     
-    final_report_text = ""
-    for event in graph.stream(initial_state):
+    for event in graph.stream(initial_state, {"recursion_limit": 50}):
         for node, output in event.items():
-            if node == "researcher":
-                data = output["research_data"][0]
-                progress_status.write(f"Section Completed: {data['section']}")
-                with output_container:
-                    st.markdown(f"""
-                    <div class="report-card animate-in">
-                        <div class="section-title">{data['section']}</div>
-                        {data['content']}
-                    </div>
-                    """, unsafe_allow_html=True)
-            if node == "writer":
+            # Only try to access keys if they actually exist in this specific event update
+            if node == "researcher" and "research_data" in output:
+                for entry in output["research_data"]:
+                    progress_status.write(f"✅ Completed: {entry['section']}")
+                    with output_container:
+                        st.markdown(f"""
+                        <div class="report-card animate-in">
+                            <div class="section-title">{entry['section']}</div>
+                            {entry['content']}
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            if node == "writer" and "final_report" in output:
                 final_report_text = output["final_report"]
-
     progress_status.update(label="Analysis Finalized", state="complete", expanded=False)
 
     # DOCX Export
