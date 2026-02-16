@@ -1,0 +1,16 @@
+# Web Framework
+streamlit
+
+# AI Orchestration & Graph Logic
+langgraph
+langchain-anthropic
+langchain-community
+
+# Search Engine Integration
+tavily-python
+
+# Document Processing & Export
+python-docx
+
+# Utilities
+typing-extensions
