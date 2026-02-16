@@ -12,6 +12,11 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.shared import OxmlElement, qn
 from docx.opc.constants import RELATIONSHIP_TYPE
+from docx import Document
+import docx.oxml.shared as shared
+from docx.oxml.shared import OxmlElement, qn
+from docx.opc.constants import RELATIONSHIP_TYPE
+
 # --- 1. PAGE CONFIG & THEME ---
 st.set_page_config(
     page_title="Deep Intelligence Orchestrator", 
@@ -345,21 +350,18 @@ def researcher_node(state: OverallState):
     }
 def add_hyperlink(paragraph, url, text):
     """
-    A low-level function to add a real, clickable hyperlink to a paragraph.
+    Adds a clickable hyperlink to a paragraph.
     """
-    # This gets access to the document.xml.rels file and gets a new relation id
     part = paragraph.part
     r_id = part.relate_to(url, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
 
-    # Create the w:hyperlink tag and add needed values
     hyperlink = OxmlElement('w:hyperlink')
     hyperlink.set(qn('r:id'), r_id)
 
-    # Create a w:r element and a new w:rPr element
     new_run = OxmlElement('w:r')
     rPr = OxmlElement('w:rPr')
 
-    # Add a blue underline style to look like a link
+    # Optional: Blue and Underline styling
     u = OxmlElement('w:u')
     u.set(qn('w:val'), 'single')
     rPr.append(u)
@@ -368,12 +370,13 @@ def add_hyperlink(paragraph, url, text):
     rPr.append(c)
 
     new_run.append(rPr)
-    new_run.text = text
+    text_element = OxmlElement('w:t')
+    text_element.text = text
+    new_run.append(text_element)
     hyperlink.append(new_run)
 
     paragraph._p.append(hyperlink)
     return hyperlink
-
 def save_report_as_docx(final_text, target_name):
     doc = Document()
     lines = final_text.split('\n')
