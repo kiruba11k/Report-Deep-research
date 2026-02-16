@@ -73,9 +73,8 @@ st.markdown("""
 class OverallState(TypedDict):
     target_company: str
     pdf_context: str
-    # This tells LangGraph: "When multiple agents return data, APPEND them to the list"
-    research_data: Annotated[List[dict], operator.add] 
-    source_urls: Annotated[List[str], operator.add]
+    research_data: Annotated[list, operator.add]
+    source_urls: Annotated[list, operator.add]
     final_report: str
 
 class SectionState(TypedDict):
@@ -181,16 +180,22 @@ def writer(state: OverallState):
     return {"final_report": report}
 # Graph Construction
 builder = StateGraph(OverallState)
+
 builder.add_node("planner", planner)
 builder.add_node("researcher", researcher)
 builder.add_node("writer", writer)
 
 builder.set_entry_point("planner")
-builder.add_conditional_edges("planner", lambda x: x) # Dispatches the Send() objects
-builder.add_edge("researcher", "writer") # Fans-in all researchers to the writer
+
+# FIX: planner already dispatches Send objects
+builder.add_edge("planner", "researcher")
+
+builder.add_edge("researcher", "writer")
+
 builder.add_edge("writer", END)
 
 graph = builder.compile()
+
 
 # --- 5. UI ORCHESTRATION ---
 st.title("Strategic Intelligence Orchestrator")
@@ -222,7 +227,8 @@ if execute and target_name:
         "target_company": target_name, 
         "pdf_context": extracted_text,
         "research_data": [], 
-        "source_urls": []
+        "source_urls": [],
+        "final_report": ""
     }
     
     final_report_text = ""
