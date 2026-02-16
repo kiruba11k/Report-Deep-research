@@ -126,7 +126,12 @@ PROMPT_SOP = {
 
 # --- 4. MULTI-AGENT ANALYTICS ENGINE ---
 def get_llm():
-    return ChatAnthropic(model="claude-3-5-sonnet-latest", anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"])
+    # 'claude-3-5-sonnet-20241022' is the most stable identifier for Sonnet 3.5
+    return ChatAnthropic(
+        model="claude-3-5-sonnet-20241022", 
+        anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"],
+        temperature=0
+    )
 
 def initializer(state: OverallState):
     """Starts the process by listing what needs to be researched."""
@@ -145,28 +150,34 @@ def researcher_node(state: OverallState):
     llm = get_llm()
     search_tool = TavilySearchResults(max_results=3, tavily_api_key=st.secrets["TAVILY_API_KEY"])
     
-    # 1. Search
+    # 1. Search Logic
     query = f"{state['target_company']} {current_section} 2024 2025"
     try:
         web_results = search_tool.invoke(query)
         urls = [r.get('url', '') for r in web_results]
-        web_context = "\n".join([r.get('content', '') for r in web_results])
+        web_context = "\n".join([f"Source: {r.get('content', '')}" for r in web_results])
     except:
         urls, web_context = [], "Web search failed."
 
     # 2. LLM Analysis
+    # Formatting prompt with company name safely
     sys_prompt = PROMPT_SOP[current_section].replace("{company}", state['target_company'])
-    user_msg = f"PDF Context: {state['pdf_context'][:8000]}\nWeb Context: {web_context}"
     
-    response = llm.invoke([("system", sys_prompt), ("user", user_msg)])
+    # REDUCE context size to 5000 to ensure we don't hit model limits or 404s on large headers
+    user_msg = f"Target Company: {state['target_company']}\n\nPDF DOCUMENT EXCERPT:\n{state['pdf_context'][:5000]}\n\nWEB SEARCH DATA:\n{web_context}"
     
-    # 3. Update state manually (Standard Python List Addition)
+    try:
+        response = llm.invoke([("system", sys_prompt), ("user", user_msg)])
+        content = response.content
+    except Exception as e:
+        # If the specific model fails, we use a fallback to ensure the app doesn't crash
+        content = f"Error analyzing {current_section}: {str(e)}"
+    
     return {
-        "completed_research": state["completed_research"] + [{"section": current_section, "content": response.content}],
+        "completed_research": state["completed_research"] + [{"section": current_section, "content": content}],
         "all_urls": state["all_urls"] + urls,
-        "remaining_sections": state["remaining_sections"][1:] # Pop the section we just did
+        "remaining_sections": state["remaining_sections"][1:] 
     }
-
 def router(state: OverallState):
     """Checks if there are more sections to research."""
     return "researcher" if state["remaining_sections"] else "writer"
