@@ -73,8 +73,8 @@ st.markdown("""
 class OverallState(TypedDict):
     target_company: str
     pdf_context: str
-    # CRITICAL: Both of these must use operator.add to handle parallel updates
-    research_data: Annotated[List[dict], operator.add]
+    # This tells LangGraph: "When multiple agents return data, APPEND them to the list"
+    research_data: Annotated[List[dict], operator.add] 
     source_urls: Annotated[List[str], operator.add]
     final_report: str
 
@@ -162,7 +162,7 @@ def researcher(state: SectionState):
     # CRITICAL FIX: Return both keys so the reducer can merge them into OverallState
     return {
         "research_data": [{"section": state['section_name'], "content": response.content}],
-        "source_urls": urls
+        "source_urls": urls # 'urls' is already a list from search_tool
     }
 
 def writer(state: OverallState):
@@ -186,9 +186,10 @@ builder.add_node("researcher", researcher)
 builder.add_node("writer", writer)
 
 builder.set_entry_point("planner")
-builder.add_conditional_edges("planner", lambda x: x)
-builder.add_edge("researcher", "writer")
+builder.add_conditional_edges("planner", lambda x: x) # Dispatches the Send() objects
+builder.add_edge("researcher", "writer") # Fans-in all researchers to the writer
 builder.add_edge("writer", END)
+
 graph = builder.compile()
 
 # --- 5. UI ORCHESTRATION ---
