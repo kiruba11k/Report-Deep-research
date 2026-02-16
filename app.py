@@ -73,7 +73,7 @@ st.markdown("""
 class OverallState(TypedDict):
     target_company: str
     pdf_context: str
-    # Both of these receive multiple updates at once, so both need operator.add
+    # CRITICAL: Both of these must use operator.add to handle parallel updates
     research_data: Annotated[List[dict], operator.add]
     source_urls: Annotated[List[str], operator.add]
     final_report: str
