@@ -72,8 +72,9 @@ st.markdown("""
 class OverallState(TypedDict):
     target_company: str
     pdf_context: str
-    research_data: Annotated[list, operator.add] # Use 'list'
-    source_urls: Annotated[list, operator.add]   # Use 'list'
+    # Use lowercase 'list' for better compatibility with operator.add
+    research_data: Annotated[list, operator.add]
+    source_urls: Annotated[list, operator.add]
     final_report: str
 
 class SectionState(TypedDict):
@@ -145,24 +146,27 @@ def researcher(state: SectionState):
     search_tool = TavilySearchResults(max_results=5, tavily_api_key=st.secrets["TAVILY_API_KEY"])
     llm = get_llm()
     
-    query = f"{state['target_company']} {state['section_name']} report 2024-2026"
+    query = f"{state['target_company']} {state['section_name']}"
+    
+    # 1. Safe Search
     try:
         web_results = search_tool.invoke(query)
-        urls = [r['url'] for r in web_results] if web_results else []
-        web_context = "\n".join([f"Source [{i+1}]: {r['content']} (URL: {r['url']})" for i, r in enumerate(web_results)])
-    except:
+        urls = [str(r.get('url', '')) for r in web_results]
+        web_context = "\n".join([f"Source: {r.get('content', '')}" for r in web_results])
+    except Exception:
         urls = []
-        web_context = "Web search failed."
+        web_context = "Search unavailable."
 
-    system_msg = f"You are a specialist analyst. Use.\n\n{PROMPT_SOP.get(state['section_name'], '')}"
-    user_msg = f"Target: {state['target_company']}\nPDF Context: {state['pdf_context'][:10000]}\nWeb: {web_context}"
+    # 2. LLM Call
+    system_msg = f"You are a financial analyst. Use. \n\n{PROMPT_SOP.get(state['section_name'], '')}"
+    user_msg = f"Company: {state['target_company']}\nContext: {state['pdf_context'][:10000]}\nWeb: {web_context}"
     
     response = llm.invoke([("system", system_msg), ("user", user_msg)])
     
-    # FORCE return as dictionary of lists
+    # 3. FORCE RETURN AS LIST OF DICTS (The state expects a list to 'add' to)
     return {
         "research_data": [{"section": state['section_name'], "content": str(response.content)}],
-        "source_urls": list(urls) 
+        "source_urls": list(urls) # Ensure this is a flat list
     }
     
 def writer(state: OverallState):
@@ -185,16 +189,14 @@ builder.add_node("writer", writer)
 
 builder.set_entry_point("planner")
 
-# FIX 2: Simplified conditional edge. 
-# LangGraph uses the return value of planner (the Send list) to route automatically.
+# This tells LangGraph to take the list of Send() objects and run them
 builder.add_conditional_edges("planner", lambda x: x) 
 
+# This fans-in the results. LangGraph waits for ALL researchers before moving to writer.
 builder.add_edge("researcher", "writer")
 builder.add_edge("writer", END)
 
-# compile without debug=True for production Streamlit Cloud
 graph = builder.compile()
-
 
 # --- 5. UI ORCHESTRATION ---
 st.title("Strategic Intelligence Orchestrator")
@@ -225,27 +227,20 @@ if execute and target_name:
     initial_state = {
         "target_company": target_name, 
         "pdf_context": extracted_text,
-        "research_data": [], 
-        "source_urls": [],
-        "final_report": "" # Initialize ALL keys
+        "research_data": [],  # Initialize as empty list
+        "source_urls": [],    # Initialize as empty list
+        "final_report": ""    # Initialize as empty string
     }
     
     for event in graph.stream(initial_state, {"recursion_limit": 50}):
-        for node, output in event.items():
-            # Only try to access keys if they actually exist in this specific event update
-            if node == "researcher" and "research_data" in output:
-                for entry in output["research_data"]:
-                    progress_status.write(f"✅ Completed: {entry['section']}")
-                    with output_container:
-                        st.markdown(f"""
-                        <div class="report-card animate-in">
-                            <div class="section-title">{entry['section']}</div>
-                            {entry['content']}
-                        </div>
-                        """, unsafe_allow_html=True)
-            
-            if node == "writer" and "final_report" in output:
-                final_report_text = output["final_report"]
+        # Use .get() to prevent crashes during the streaming of partial updates
+        for node_name, output in event.items():
+            if node_name == "researcher":
+                # Safety check: only act if research_data is in the output
+                res_list = output.get("research_data", [])
+                if res_list:
+                    data = res_list[0]
+                    progress_status.write(f"Completed: {data['section']}")
     progress_status.update(label="Analysis Finalized", state="complete", expanded=False)
 
     # DOCX Export
