@@ -145,16 +145,95 @@ def add_hyperlink(paragraph,url,text):
  run.append(text_el)
  hyperlink.append(run)
  paragraph._p.append(hyperlink)
-def save_docx(text):
+def save_report_as_docx(final_text,target):
+ from docx.shared import Pt,RGBColor,Inches
+ from docx.enum.text import WD_ALIGN_PARAGRAPH
+ from docx.oxml import OxmlElement
+ from docx.enum.style import WD_STYLE_TYPE
  doc=Document()
- for line in text.split("\n"):
-  p=doc.add_paragraph()
-  parts=re.split(r'(\[ref\]\(.*?\))',line)
+ section=doc.sections[0]
+ section.top_margin=Inches(1)
+ section.bottom_margin=Inches(1)
+ section.left_margin=Inches(1)
+ section.right_margin=Inches(1)
+ title=doc.add_paragraph()
+ run=title.add_run("Strategic Intelligence Report")
+ run.font.size=Pt(32)
+ run.font.bold=True
+ run.font.color.rgb=RGBColor(0,51,102)
+ title.alignment=WD_ALIGN_PARAGRAPH.CENTER
+ subtitle=doc.add_paragraph()
+ run2=subtitle.add_run(target)
+ run2.font.size=Pt(20)
+ run2.font.color.rgb=RGBColor(89,89,89)
+ subtitle.alignment=WD_ALIGN_PARAGRAPH.CENTER
+ doc.add_page_break()
+ lines=final_text.split("\n")
+ for line in lines:
+  line=line.strip()
+  if not line:
+   continue
+  if line.startswith("# Strategic Intelligence Report"):
+   continue
+  if line.startswith("# References"):
+   doc.add_page_break()
+   ref=doc.add_paragraph()
+   r=ref.add_run("References")
+   r.font.size=Pt(18)
+   r.font.bold=True
+   r.font.color.rgb=RGBColor(0,51,102)
+   continue
+  if line.startswith("## "):
+   h=doc.add_paragraph()
+   r=h.add_run(line.replace("## ",""))
+   r.font.size=Pt(18)
+   r.font.bold=True
+   r.font.color.rgb=RGBColor(0,51,102)
+   continue
+  if line.startswith("●"):
+   p=doc.add_paragraph(style=None)
+   run=p.add_run("● ")
+   run.font.bold=True
+   content=line[1:].strip()
+  else:
+   p=doc.add_paragraph()
+   content=line
+  parts=re.split(r'(\[ref\]\(.*?\))',content)
   for part in parts:
-   match=re.match(r'\[ref\]\((.*?)\)',part)
-   if match:add_hyperlink(p,match.group(1),"[ref]")
-   else:p.add_run(part)
- buf=io.BytesIO();doc.save(buf);return buf.getvalue()
+   link_match=re.match(r'\[ref\]\((.*?)\)',part)
+   if link_match:
+    url=link_match.group(1)
+    part_rel=p.part
+    r_id=part_rel.relate_to(url,RELATIONSHIP_TYPE.HYPERLINK,is_external=True)
+    hyperlink=OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'),r_id)
+    new_run=OxmlElement('w:r')
+    rPr=OxmlElement('w:rPr')
+    c=OxmlElement('w:color')
+    c.set(qn('w:val'),'0563C1')
+    rPr.append(c)
+    u=OxmlElement('w:u')
+    u.set(qn('w:val'),'single')
+    rPr.append(u)
+    new_run.append(rPr)
+    text_el=OxmlElement('w:t')
+    text_el.text=" [ref]"
+    new_run.append(text_el)
+    hyperlink.append(new_run)
+    p._p.append(hyperlink)
+   else:
+    bold_parts=re.split(r'(\*\*.*?\*\*)',part)
+    for bp in bold_parts:
+     if bp.startswith("**") and bp.endswith("**"):
+      run=p.add_run(bp.replace("**",""))
+      run.bold=True
+     else:
+      run=p.add_run(bp)
+      run.font.size=Pt(11)
+ buf=io.BytesIO()
+ doc.save(buf)
+ return buf.getvalue()
+
 workflow=StateGraph(OverallState)
 workflow.add_node("initializer",initializer)
 workflow.add_node("researcher",researcher_node)
@@ -181,6 +260,7 @@ if st.sidebar.button("Run Analysis")and target:
     if node=="reflection":
      latest=out["completed_research"][-1]
      st.markdown(f"### {latest['section']}")
-     st.write(latest["content"])
+     st.markdown(latest["content"],unsafe_allow_html=True)
+
     if node=="writer":final=out["final_report"]
  st.download_button("Download DOCX",save_docx(final),file_name=f"{target}_Strategic_Report.docx")
