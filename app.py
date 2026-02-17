@@ -263,4 +263,4 @@ if st.sidebar.button("Run Analysis")and target:
      st.markdown(latest["content"],unsafe_allow_html=True)
 
     if node=="writer":final=out["final_report"]
- st.download_button("Download DOCX",save_docx(final),file_name=f"{target}_Strategic_Report.docx")
+ st.download_button("Download DOCX",save_report_as_docx(final),file_name=f"{target}_Strategic_Report.docx")
