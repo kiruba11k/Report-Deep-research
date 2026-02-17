@@ -87,7 +87,7 @@ PROMPT_SOP = {
 # --- 4. ENGINE LOGIC ---
 def get_llm():
     return ChatAnthropic(
-        model="claude-3-5-sonnet-20241022", 
+        model="claude-3-haiku-latest", 
         anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"],
         temperature=0
     )
