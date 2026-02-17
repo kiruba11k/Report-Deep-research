@@ -10,6 +10,8 @@ from docx import Document
 from pypdf import PdfReader
 from docx.oxml.shared import OxmlElement, qn
 from docx.opc.constants import RELATIONSHIP_TYPE
+os.environ["TAVILY_API_KEY"] = st.secrets["TAVILY_API_KEY"]
+os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
 
 # --- 1. PAGE CONFIG & THEME ---
 st.set_page_config(
@@ -113,11 +115,14 @@ def researcher_node(state: OverallState):
         "sec.gov"
     ]
     
-    search_tool = TavilySearchResults(
-        max_results=5, 
-        tavily_api_key=st.secrets["TAVILY_API_KEY"],
-        # New: Use Tavily's domain filtering capabilities
-        include_domains=fintech_domains if "Tech" in current_section or "Business" in current_section else None
+    if "Tech" in current_section or "Business" in current_section:
+        search_tool = TavilySearchResults(
+        max_results=5,
+        include_domains=fintech_domains
+    )
+    else:
+        search_tool = TavilySearchResults(
+        max_results=5
     )
     
     # Search Query Enhancement
@@ -129,11 +134,21 @@ def researcher_node(state: OverallState):
         query = f"{state['target_company']} {current_section} 2025 news"
 
     try:
-        web_results = search_tool.invoke(query)
-        urls = [r.get('url', '') for r in web_results]
-        web_context = "\n".join([f"Source [{r.get('url')}]: {r.get('content')}" for r in web_results])
-    except:
-        urls, web_context = [], "Web search failed."
+        web_results = search_tool.invoke({"query": query})
+
+        urls = []
+        contents = []
+
+        for r in web_results:
+            urls.append(r.get("url", ""))
+            contents.append(f"Source [{r.get('url')}]: {r.get('content')}")
+
+        web_context = "\n".join(contents)
+
+    except Exception as e:
+        urls = []
+        web_context = f"Web search failed: {str(e)}"
+
 
     # --- UPDATED STYLING FOR SOURCE REDIRECTION ---
     styling_instruction = """
