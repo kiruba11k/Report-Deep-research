@@ -84,7 +84,9 @@ html,body,.stApp{
 /* Glass cards */
 
 .glass-card{
-
+ max-width:1100px;
+ margin-left:auto;
+ margin-right:auto;
  background:rgba(255,255,255,0.05);
 
  backdrop-filter:blur(20px);
