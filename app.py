@@ -195,15 +195,15 @@ html,body,.stApp{
 
 <div class="navbar-custom">
 
-<div class="logo">Strategic Intelligence</div>
+<div class="logo">Report Generator </div>
 
-<div>Enterprise AI Research Platform</div>
+<div>Deep Research</div>
 
 </div>
 
 <div class="hero">
 
-<div class="hero-title">Enterprise Intelligence Platform</div>
+<div class="hero-title">Enterprise Deep Research Intelligence Platform</div>
 
 <div class="hero-sub">
 
