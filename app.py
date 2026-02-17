@@ -1,255 +1,186 @@
-import os
-import io
-import re
-import streamlit as st
+import os,io,re,streamlit as st
 from typing import TypedDict
 from langchain_anthropic import ChatAnthropic
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph,END
 from docx import Document
-from pypdf import PdfReader
-from docx.oxml.shared import OxmlElement, qn
+from docx.oxml.shared import OxmlElement,qn
 from docx.opc.constants import RELATIONSHIP_TYPE
-os.environ["TAVILY_API_KEY"] = st.secrets["TAVILY_API_KEY"]
-os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
-
-# --- 1. PAGE CONFIG & THEME ---
-st.set_page_config(
-    page_title="Deep Intelligence Orchestrator", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# --- 2. THEME CSS ---
-st.markdown("""
-    <style>
-    :root { --primary: #3b82f6; --text-main: #f1f5f9; }
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: var(--text-main); }
-    </style>
-    """, unsafe_allow_html=True)
-
+from pypdf import PdfReader
+os.environ["TAVILY_API_KEY"]=st.secrets["TAVILY_API_KEY"]
+os.environ["ANTHROPIC_API_KEY"]=st.secrets["ANTHROPIC_API_KEY"]
+st.set_page_config(page_title="Enterprise Strategic Intelligence",layout="wide")
+st.title("Enterprise Strategic Intelligence Orchestrator")
 class OverallState(TypedDict):
-    target_company: str
-    pdf_context: str
-    remaining_sections: list
-    completed_research: list
-    all_urls: list
-    final_report: str
-
-# --- 3. DYNAMIC DOMAIN PROMPTS ---
-# Removed LinkedIn and Stakeholder tables. Focused on verified facts and strategic fit.
-PROMPT_SOP = {
-    "Section 1: Account Business Overview": """
-        Act as a Senior Banking Analyst. Analyze {company}. 
-        Use the following structure:
-        1.1 Identity: Holding company, ticker, founding date, FDIC Cert #.
-        1.2 Regulatory: HQ, primary federal regulator, charter signal.
-        1.3 Scale (FY2024/25): Assets, Deposits, Loans, and Stockholders’ equity.
-        1.4 Performance: Net Income, ROAA%, ROAE%, and YoY Growth (2024 vs 2023).
-        1.5 Business Lines: Publicly emphasized lending and wealth focus.
-        
-        STYLING: Use '●' for points. End every fact with [ref](URL).
-    """,
-
-    "Section 2: Account Key Business Initiatives": """
-        Act as a Strategic Advisor. Identify 5 core strategic priorities for {company} based on 2024/2025 earnings calls or news.
-        Structure:
-        2.1 Executive Synthesis: What are they optimizing for? (e.g. Operating Leverage, M&A).
-        2.2 Initiative Portfolio: Specific programs (e.g. digital mortgage, branch expansion).
-        2.3 KPI Watchlist: What metrics are they tracking?
-        
-        STYLING: Use [ref](URL) for every initiative from the search results.
-    """,
-
-    "Section 4: Speridian Account Relationship": """
-        Act as a Sales Director. Map Speridian’s expertise to {company}.
-        1. Analysis: Identify where Speridian fits (Digital Transformation, Cloud, or Data).
-        2. Play 1 & Play 2: Define two specific service "Plays" based on the bank's tech gaps or scale.
-        *IMPORTANT: DO NOT include LinkedIn URLs, personal contact tables, or stakeholder maps.*
-    """,
-
-    "Section 3: Account Tech Landscape": """
-        Act as a Fintech Architect. Map the bank's digital stack.
-        3.1 Channels: Mobile features, Card controls, and Digital access.
-        3.2 Treasury/Workflows: RDC, Positive Pay, and ACH capabilities.
-        3.3 Partnerships: Core provider (FIS/Fiserv/Jack Henry) and fintech partners.
-        
-        STYLING: Use [ref](URL) to verify vendor partnerships or app features.
-    """,
-
-    "Section 5: Next Steps and Funding Signals": """
-        Act as a Managing Director. Identify 5 "Budget Triggers" for {company}.
-        Identify specific signals like: New leadership, M&A activity, efficiency ratio targets, or recent capital raises.
-        Explain WHY these signals link to a services need (e.g., modernizing for scale).
-        
-        STYLING: Every signal must be backed by a [ref](URL).
-    """
-}
-
-# --- 4. ENGINE LOGIC ---
+ target_company:str
+ pdf_context:str
+ remaining_sections:list
+ completed_research:list
+ all_urls:list
+ final_report:str
 def get_llm():
-    # 'claude-3-5-sonnet-20241022' is the most stable identifier for Sonnet 3.5
-    return ChatAnthropic(
-        model="claude-3-haiku-20240307", 
-        anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"],
-        temperature=0
-    )
-
-def researcher_node(state: OverallState):
-    if not state["remaining_sections"]:
-        return state
-
-    current_section = state["remaining_sections"][0]
-    llm = get_llm()
-    
-    # --- DOMAIN PRIORITIZATION LOGIC ---
-    # We define high-authority banking & fintech domains
-    fintech_domains = [
-        "americanbanker.com", 
-        "fintechnexus.com", 
-        "finextra.com", 
-        "bankingdive.com", 
-        "fintechfutures.com",
-        "bankautomationnews.com",
-        "fdic.gov",
-        "sec.gov"
-    ]
-    
-    if "Tech" in current_section or "Business" in current_section:
-        search_tool = TavilySearchResults(
-        max_results=5,
-        include_domains=fintech_domains
-    )
-    else:
-        search_tool = TavilySearchResults(
-        max_results=5
-    )
-    
-    # Search Query Enhancement
-    if "Tech Landscape" in current_section:
-        query = f"{state['target_company']} core banking provider FIS Fiserv Jack Henry platform digital transformation"
-    elif "Business Overview" in current_section:
-        query = f"{state['target_company']} investor relations annual report 2024 2025 assets"
-    else:
-        query = f"{state['target_company']} {current_section} 2025 news"
-
-    try:
-        web_results = search_tool.invoke({"query": query})
-
-        urls = []
-        contents = []
-
-        for r in web_results:
-            urls.append(r.get("url", ""))
-            contents.append(f"Source [{r.get('url')}]: {r.get('content')}")
-
-        web_context = "\n".join(contents)
-
-    except Exception as e:
-        urls = []
-        web_context = f"Web search failed: {str(e)}"
-
-
-    # --- UPDATED STYLING FOR SOURCE REDIRECTION ---
-    styling_instruction = """
-    STRICT HYPERLINK RULE: 
-    - Every claim must end with a clickable [ref](URL).
-    - Prioritize deep-links to specific articles rather than homepages.
-    - Example: 'The bank utilizes Fiserv DNA for core processing [ref](https://www.americanbanker.com/news/example-article).'
-    - DO NOT list raw URLs at the end of the paragraph.
-    """
-
-    sys_prompt = f"{PROMPT_SOP[current_section].format(company=state['target_company'])}\n\n{styling_instruction}"
-    user_msg = f"PDF Context: {state['pdf_context'][:4000]}\n\nVerified Web Data: {web_context}"
-    
-    response = llm.invoke([("system", sys_prompt), ("user", user_msg)])
-    
-    return {
-        "completed_research": state["completed_research"] + [{"section": current_section, "content": response.content}],
-        "all_urls": state["all_urls"] + urls,
-        "remaining_sections": state["remaining_sections"][1:] 
-    }
-def add_hyperlink(paragraph, url, text):
-    part = paragraph.part
-    r_id = part.relate_to(url, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
-    hyperlink = OxmlElement('w:hyperlink')
-    hyperlink.set(qn('r:id'), r_id)
-    new_run = OxmlElement('w:r')
-    rPr = OxmlElement('w:rPr')
-    u = OxmlElement('w:u'); u.set(qn('w:val'), 'single'); rPr.append(u)
-    c = OxmlElement('w:color'); c.set(qn('w:val'), '0000FF'); rPr.append(c)
-    new_run.append(rPr)
-    text_element = OxmlElement('w:t'); text_element.text = text; new_run.append(text_element)
-    hyperlink.append(new_run)
-    paragraph._p.append(hyperlink)
-    return hyperlink
-
-def save_report_as_docx(final_text, target_name):
-    doc = Document()
-    for line in final_text.split('\n'):
-        line = line.strip()
-        if not line: continue
-        
-        if line.startswith('# '):
-            doc.add_heading(line.replace('# ', ''), level=0)
-        elif line.startswith('## '):
-            doc.add_heading(line.replace('## ', ''), level=1)
-        else:
-            p = doc.add_paragraph()
-            # Split by markdown link pattern [ref](url)
-            parts = re.split(r'(\[ref\]\(.*?\))', line)
-            for part in parts:
-                link_match = re.match(r'\[ref\]\((.*?)\)', part)
-                if link_match:
-                    url = link_match.group(1)
-                    add_hyperlink(p, url, " [ref]")
-                else:
-                    # Handle bolding inside normal text
-                    sub_parts = re.split(r'(\*\*.*?\*\*)', part)
-                    for sub in sub_parts:
-                        if sub.startswith('**') and sub.endswith('**'):
-                            p.add_run(sub.replace('**', '')).bold = True
-                        else:
-                            p.add_run(sub)
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-# --- 5. GRAPH SETUP ---
-workflow = StateGraph(OverallState)
-workflow.add_node("initializer", lambda x: {"remaining_sections": list(PROMPT_SOP.keys()), "completed_research": [], "all_urls": []})
-workflow.add_node("researcher", researcher_node)
-workflow.add_node("writer", lambda x: {"final_report": "\n\n".join([f"## {i['section']}\n{i['content']}" for i in x['completed_research']])})
-
+ return ChatAnthropic(model="claude-3-haiku-20240307",temperature=0)
+PROMPT_SOP={
+"Section 1: Account Business Overview":"""Act as a senior banking analyst and strategy consultant.Combine factual accuracy with consulting insight.Use EXACT structure:
+Section 1: Account Business Overview
+1.1 Who they are
+● **Who they are:** Description including holding company,ticker [ref](URL)
+● **Founded:** Founding year [ref](URL)
+● **Footprint:** Branch and geography [ref](URL)
+1.2 Headquarters and regulator signals
+● **HQ:** Location [ref](URL)
+● **Primary regulator:** Name [ref](URL)
+1.3 Scale and performance
+● **Assets:** Value [ref](URL)
+● **Deposits:** Value [ref](URL)
+● **Net income:** Value [ref](URL)
+1.4 Business model
+● **Revenue drivers:** Lending,wealth,etc [ref](URL)
+**Why this matters for Speridian**
+Explain strategic implications and modernization opportunities [ref](URL)
+STRICT RULES:
+Every fact MUST include clickable [ref](URL)
+Use only verified facts
+DO NOT invent data""",
+"Section 2: Account Key Business Initiatives":"""Act as strategy consultant.Use EXACT structure:
+Section 2: Account Key Business Initiatives
+2.1 Executive synthesis
+Explain strategic priorities [ref](URL)
+2.2 Initiative portfolio
+● **Initiative:** Description [ref](URL)
+● **Why it matters:** Operational impact [ref](URL)
+● **KPI watchlist:** Metrics [ref](URL)
+**Why this matters for Speridian**
+Explain service opportunities [ref](URL)
+STRICT RULES:
+Every claim must include [ref](URL)
+No hallucinations""",
+"Section 3: Account Tech Landscape":"""Act as fintech architect.Use EXACT structure:
+Section 3: Account Tech Landscape
+Executive snapshot
+Summary [ref](URL)
+3.1 Digital banking
+● **Online banking:** Details [ref](URL)
+● **Mobile banking:** Details [ref](URL)
+3.2 Core banking and partners
+● **Core provider:** FIS,Fiserv,Jack Henry,etc [ref](URL)
+● **Fintech partners:** Vendors [ref](URL)
+3.3 Implications
+Explain modernization gaps and opportunities [ref](URL)
+STRICT RULES:
+Every fact must include [ref](URL)
+Use verified sources""",
+"Section 4: Speridian Account Relationship":"""Act as sales director.Use EXACT structure:
+Section 4: Speridian Account Relationship
+4.1 Relationship analysis
+Explain likely engagement areas [ref](URL)
+4.2 Stakeholder roles
+● CIO,CTO,Head of Digital Banking roles and priorities [ref](URL)
+4.3 Strategic fit
+Explain where Speridian can deliver value [ref](URL)
+STRICT RULES:
+DO NOT generate LinkedIn URLs
+DO NOT generate personal contact info
+Use role-level insights only
+Include [ref](URL)""",
+"Section 5: Speridian Next Steps":"""Act as managing director.Use EXACT structure:
+Section 5: Speridian Next Steps
+5.1 Funding signals
+● Signal description [ref](URL)
+● Why it creates opportunity [ref](URL)
+5.2 Recommended plays
+● Play description [ref](URL)
+STRICT RULES:
+Every claim must include [ref](URL)
+No hallucinations"""}
+def initializer(state:OverallState):
+ return{"remaining_sections":list(PROMPT_SOP.keys()),"completed_research":[],"all_urls":[]}
+def researcher_node(state:OverallState):
+ if not state["remaining_sections"]:return state
+ current_section=state["remaining_sections"][0]
+ llm=get_llm()
+ fintech_domains=["fdic.gov","sec.gov","americanbanker.com","finextra.com","bankingdive.com","fintechfutures.com","bankautomationnews.com"]
+ if"Tech Landscape"in current_section:
+  query=f"{state['target_company']} core banking provider FIS Fiserv Jack Henry fintech"
+ elif"Business Overview"in current_section:
+  query=f"{state['target_company']} annual report investor relations assets deposits net income"
+ else:
+  query=f"{state['target_company']} {current_section} banking strategy initiatives"
+ search_tool=TavilySearchResults(max_results=5,include_domains=fintech_domains)
+ try:
+  results=search_tool.invoke({"query":query})
+  urls=[];context=""
+  for r in results:
+   url=r.get("url","")
+   urls.append(url)
+   context+=f"\nSource [{url}]:{r.get('content','')}"
+ except Exception as e:
+  urls=[];context=f"Search failed:{str(e)}"
+ sys_prompt=PROMPT_SOP[current_section]
+ user_msg=f"Company:{state['target_company']}\nPDF Context:{state['pdf_context'][:4000]}\nVerified Sources:{context}"
+ response=llm.invoke([("system",sys_prompt),("user",user_msg)])
+ return{"completed_research":state["completed_research"]+[{"section":current_section,"content":response.content}],"all_urls":state["all_urls"]+urls,"remaining_sections":state["remaining_sections"][1:]}
+def reflection_node(state:OverallState):
+ llm=get_llm()
+ latest=state["completed_research"][-1]
+ audit_prompt=f"""You are audit analyst.Remove hallucinations.Remove claims without sources.Ensure every fact has [ref](URL).Return corrected version only:\n{latest['content']}"""
+ response=llm.invoke([("user",audit_prompt)])
+ state["completed_research"][-1]["content"]=response.content
+ return state
+def writer_node(state:OverallState):
+ report=f"# Strategic Intelligence Report: {state['target_company']}\n"
+ for item in state["completed_research"]:
+  report+=f"\n## {item['section']}\n{item['content']}\n"
+ report+="\n# References\n"
+ for url in list(set(state["all_urls"])):report+=f"- {url}\n"
+ return{"final_report":report}
+def add_hyperlink(paragraph,url,text):
+ part=paragraph.part
+ r_id=part.relate_to(url,RELATIONSHIP_TYPE.HYPERLINK,is_external=True)
+ hyperlink=OxmlElement("w:hyperlink")
+ hyperlink.set(qn("r:id"),r_id)
+ run=OxmlElement("w:r")
+ text_el=OxmlElement("w:t")
+ text_el.text=text
+ run.append(text_el)
+ hyperlink.append(run)
+ paragraph._p.append(hyperlink)
+def save_docx(text):
+ doc=Document()
+ for line in text.split("\n"):
+  p=doc.add_paragraph()
+  parts=re.split(r'(\[ref\]\(.*?\))',line)
+  for part in parts:
+   match=re.match(r'\[ref\]\((.*?)\)',part)
+   if match:add_hyperlink(p,match.group(1),"[ref]")
+   else:p.add_run(part)
+ buf=io.BytesIO();doc.save(buf);return buf.getvalue()
+workflow=StateGraph(OverallState)
+workflow.add_node("initializer",initializer)
+workflow.add_node("researcher",researcher_node)
+workflow.add_node("reflection",reflection_node)
+workflow.add_node("writer",writer_node)
 workflow.set_entry_point("initializer")
-workflow.add_edge("initializer", "researcher")
-workflow.add_conditional_edges("researcher", lambda x: "researcher" if x["remaining_sections"] else "writer", {"researcher": "researcher", "writer": "writer"})
-workflow.add_edge("writer", END)
-app = workflow.compile()
-
-# --- 6. UI ---
-st.title("Strategic Intelligence Orchestrator")
-target_name = st.sidebar.text_input("Target Bank Name")
-uploaded_file = st.sidebar.file_uploader("Upload PDF", type="pdf")
-
-if st.sidebar.button("EXECUTE ANALYSIS") and target_name:
-    pdf_text = ""
-    if uploaded_file:
-        pdf_text = "\n".join([p.extract_text() for p in PdfReader(uploaded_file).pages if p.extract_text()])
-
-    initial_state = {"target_company": target_name, "pdf_context": pdf_text, "remaining_sections": [], "completed_research": [], "all_urls": [], "final_report": ""}
-
-    with st.status("Analyzing Bank Intelligence...") as status:
-        final_text = ""
-        for event in app.stream(initial_state):
-            for node, output in event.items():
-                if node == "researcher":
-                    latest = output["completed_research"][-1]
-                    status.write(f"Completed: {latest['section']}")
-                    st.markdown(f"### {latest['section']}")
-                    st.write(latest['content'])
-                if node == "writer":
-                    final_text = output["final_report"]
-
-    docx_bytes = save_report_as_docx(final_text, target_name)
-    st.download_button(label="Download Strategic Report (DOCX)", data=docx_bytes, file_name=f"Speridian_Analysis_{target_name}.docx")
+workflow.add_edge("initializer","researcher")
+workflow.add_edge("researcher","reflection")
+workflow.add_conditional_edges("reflection",lambda x:"researcher"if x["remaining_sections"]else"writer",{"researcher":"researcher","writer":"writer"})
+workflow.add_edge("writer",END)
+app=workflow.compile()
+target=st.sidebar.text_input("Target Company")
+pdf=st.sidebar.file_uploader("Upload PDF",type="pdf")
+if st.sidebar.button("Run Analysis")and target:
+ pdf_text=""
+ if pdf:
+  reader=PdfReader(pdf)
+  pdf_text="\n".join([p.extract_text()for p in reader.pages if p.extract_text()])
+ state={"target_company":target,"pdf_context":pdf_text,"remaining_sections":[],"completed_research":[],"all_urls":[],"final_report":""}
+ final=""
+ with st.status("Running analysis"):
+  for event in app.stream(state):
+   for node,out in event.items():
+    if node=="reflection":
+     latest=out["completed_research"][-1]
+     st.markdown(f"### {latest['section']}")
+     st.write(latest["content"])
+    if node=="writer":final=out["final_report"]
+ st.download_button("Download DOCX",save_docx(final),file_name=f"{target}_Strategic_Report.docx")
