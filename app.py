@@ -7,10 +7,264 @@ from docx import Document
 from docx.oxml.shared import OxmlElement,qn
 from docx.opc.constants import RELATIONSHIP_TYPE
 from pypdf import PdfReader
+import streamlit.components.v1 as components
+
 os.environ["TAVILY_API_KEY"]=st.secrets["TAVILY_API_KEY"]
 os.environ["ANTHROPIC_API_KEY"]=st.secrets["ANTHROPIC_API_KEY"]
 st.set_page_config(page_title="Enterprise Strategic Intelligence",layout="wide")
-st.title("Enterprise Strategic Intelligence Orchestrator")
+st.markdown("""
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+
+section[data-testid="stSidebar"]{display:none;}
+div[data-testid="collapsedControl"]{display:none;}
+header{display:none;}
+footer{display:none;}
+
+html,body,.stApp{
+ font-family:'Inter',sans-serif;
+ background:#020617;
+ color:#e2e8f0;
+ overflow-x:hidden;
+}
+
+/* 3D background canvas */
+#bg-canvas{
+ position:fixed;
+ top:0;
+ left:0;
+ width:100%;
+ height:100%;
+ z-index:-1;
+}
+
+/* Navbar */
+
+.navbar-custom{
+ display:flex;
+ justify-content:space-between;
+ align-items:center;
+ padding:20px 60px;
+ background:rgba(255,255,255,0.03);
+ backdrop-filter:blur(20px);
+ border-bottom:1px solid rgba(255,255,255,0.05);
+}
+
+.logo{
+ font-weight:600;
+ font-size:22px;
+ background:linear-gradient(90deg,#38bdf8,#6366f1);
+ -webkit-background-clip:text;
+ -webkit-text-fill-color:transparent;
+}
+
+/* Hero */
+
+.hero{
+ text-align:center;
+ margin-top:80px;
+ margin-bottom:40px;
+}
+
+.hero-title{
+ font-size:52px;
+ font-weight:700;
+ background:linear-gradient(90deg,#38bdf8,#818cf8);
+ -webkit-background-clip:text;
+ -webkit-text-fill-color:transparent;
+}
+
+.hero-sub{
+ color:#94a3b8;
+ margin-top:10px;
+}
+
+/* Glass cards */
+
+.glass-card{
+
+ background:rgba(255,255,255,0.05);
+
+ backdrop-filter:blur(20px);
+
+ border:1px solid rgba(255,255,255,0.08);
+
+ border-radius:16px;
+
+ padding:30px;
+
+ margin-top:20px;
+
+ transition:all 0.3s ease;
+
+ animation:fadeUp 0.8s ease;
+
+}
+
+.glass-card:hover{
+
+ transform:translateY(-5px);
+
+ box-shadow:0 20px 40px rgba(0,0,0,0.6);
+
+}
+
+/* Inputs */
+
+.stTextInput input{
+
+ background:rgba(255,255,255,0.05);
+
+ border:none;
+
+ border-radius:10px;
+
+ color:white;
+
+ padding:12px;
+
+}
+
+.stFileUploader{
+
+ background:rgba(255,255,255,0.05);
+
+ border-radius:10px;
+
+ padding:12px;
+
+}
+
+/* Button */
+
+.stButton>button{
+
+ background:linear-gradient(90deg,#2563eb,#7c3aed);
+
+ border:none;
+
+ border-radius:12px;
+
+ padding:14px 32px;
+
+ color:white;
+
+ font-weight:600;
+
+ transition:0.3s;
+
+}
+
+.stButton>button:hover{
+
+ transform:scale(1.05);
+
+ box-shadow:0 10px 30px rgba(99,102,241,0.5);
+
+}
+
+/* Animation */
+
+@keyframes fadeUp{
+
+ from{
+
+ opacity:0;
+
+ transform:translateY(40px);
+
+ }
+
+ to{
+
+ opacity:1;
+
+ transform:translateY(0);
+
+ }
+
+}
+
+</style>
+
+<div id="bg-canvas"></div>
+
+<div class="navbar-custom">
+
+<div class="logo">Strategic Intelligence</div>
+
+<div>Enterprise AI Research Platform</div>
+
+</div>
+
+<div class="hero">
+
+<div class="hero-title">Enterprise Intelligence Platform</div>
+
+<div class="hero-sub">
+
+AI-powered consulting-grade research and analysis
+
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+
+<script>
+
+const scene=new THREE.Scene();
+
+const camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
+
+const renderer=new THREE.WebGLRenderer({alpha:true});
+
+renderer.setSize(window.innerWidth,window.innerHeight);
+
+document.getElementById("bg-canvas").appendChild(renderer.domElement);
+
+const geometry=new THREE.IcosahedronGeometry(2,1);
+
+const material=new THREE.MeshStandardMaterial({
+
+ color:0x6366f1,
+
+ wireframe:true
+
+});
+
+const sphere=new THREE.Mesh(geometry,material);
+
+scene.add(sphere);
+
+const light=new THREE.PointLight(0x38bdf8,1);
+
+light.position.set(5,5,5);
+
+scene.add(light);
+
+camera.position.z=5;
+
+function animate(){
+
+ requestAnimationFrame(animate);
+
+ sphere.rotation.x+=0.003;
+
+ sphere.rotation.y+=0.003;
+
+ renderer.render(scene,camera);
+
+}
+
+animate();
+
+</script>
+
+""",unsafe_allow_html=True)
+
 class OverallState(TypedDict):
  target_company:str
  pdf_context:str
@@ -245,26 +499,70 @@ workflow.add_edge("researcher","reflection")
 workflow.add_conditional_edges("reflection",lambda x:"researcher"if x["remaining_sections"]else"writer",{"researcher":"researcher","writer":"writer"})
 workflow.add_edge("writer",END)
 app=workflow.compile()
-target=st.sidebar.text_input("Target Company")
-pdf=st.sidebar.file_uploader("Upload PDF",type="pdf")
-if st.sidebar.button("Run Analysis")and target:
- pdf_text=""
- if pdf:
-  reader=PdfReader(pdf)
-  pdf_text="\n".join([p.extract_text()for p in reader.pages if p.extract_text()])
- state={"target_company":target,"pdf_context":pdf_text,"remaining_sections":[],"completed_research":[],"all_urls":[],"final_report":""}
- final=""
- with st.status("Running analysis"):
-  for event in app.stream(state):
-   for node,out in event.items():
-    if node=="reflection":
-     latest=out["completed_research"][-1]
-     st.markdown(f"### {latest['section']}")
-     st.markdown(latest["content"],unsafe_allow_html=True)
+st.markdown('<div class="container glass-card">',unsafe_allow_html=True)
 
-    if node=="writer":final=out["final_report"]
- st.download_button(
-  "Download DOCX",
-  save_report_as_docx(final,target),
-  file_name=f"{target}_Strategic_Report.docx"
- )
+col1,col2,col3=st.columns([2,2,1])
+
+with col1:
+ target=st.text_input("Target Company")
+
+with col2:
+ pdf=st.file_uploader("Upload Annual Report",type="pdf")
+
+with col3:
+ run=st.button("Run Analysis")
+
+st.markdown('</div>',unsafe_allow_html=True)
+
+if run and target:
+
+ pdf_text=""
+
+ if pdf:
+
+  reader=PdfReader(pdf)
+
+  pdf_text="\n".join([p.extract_text()for p in reader.pages if p.extract_text()])
+
+ state={"target_company":target,"pdf_context":pdf_text,"remaining_sections":[],"completed_research":[],"all_urls":[],"final_report":""}
+
+ final=""
+
+ with st.status("Running strategic intelligence analysis...",expanded=True):
+   
+
+  for event in app.stream(state):
+
+   for node,out in event.items():
+
+    if node=="reflection":
+
+     latest=out["completed_research"][-1]
+
+     st.markdown(f"""
+
+     <div class="container glass-card">
+
+     <h4>{latest['section']}</h4>
+
+     {latest['content']}
+
+     </div>
+
+     """,unsafe_allow_html=True)
+
+    if node=="writer":
+
+     final=out["final_report"]
+
+ if final:
+
+  st.download_button(
+
+   "Download DOCX",
+
+   save_report_as_docx(final,target),
+
+   file_name=f"{target}_Strategic_Report.docx"
+
+  )
